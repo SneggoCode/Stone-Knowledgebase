@@ -19,7 +19,16 @@ from tkinter import (
 from tkinter import ttk, simpledialog
 
 CSV_FILE = 'knowledgebase.csv'
-COLUMNS = ['stone_type','product_form','grain_size_mm','eigenschaft','anwendung','faq_question','answer_text']
+COLUMNS = [
+    'category',
+    'faq_question',
+    'answer_text',
+    'stone_type',
+    'product_form',
+    'grain_size_mm',
+    'eigenschaft',
+    'anwendung',
+]
 
 def load_kb():
     """Load the knowledge base from CSV or return an empty DataFrame."""
@@ -68,6 +77,7 @@ class KBManager:
         table.rowconfigure(0, weight=1)
 
         labels = [
+            'Kategorie',
             'Steinart',
             'Produktform',
             'Korngroesse(mm)',
@@ -77,12 +87,23 @@ class KBManager:
             'Antwort',
         ]
         self.entries = []
+        self.categories = [
+            'product',
+            'payment',
+            'delivery',
+            'installation',
+            'warranty',
+        ]
         for i, lbl in enumerate(labels):
             Label(form, text=lbl).grid(row=i, column=0, sticky='e')
             if lbl == 'Antwort':
                 txt = Text(form, width=40, height=4)
                 txt.grid(row=i, column=1, padx=5, pady=2)
                 self.entries.append(txt)
+            elif lbl == 'Kategorie':
+                cb = ttk.Combobox(form, values=self.categories, state='readonly', width=37)
+                cb.grid(row=i, column=1, padx=5, pady=2)
+                self.entries.append(cb)
             else:
                 ent = Entry(form, width=40)
                 ent.grid(row=i, column=1, padx=5, pady=2)
@@ -150,6 +171,8 @@ class KBManager:
         for widget in self.entries:
             if isinstance(widget, Text):
                 widget.delete('1.0', END)
+            elif isinstance(widget, ttk.Combobox):
+                widget.set('')
             else:
                 widget.delete(0, END)
         self.listbox.delete(0, END)
@@ -168,6 +191,8 @@ class KBManager:
             if isinstance(widget, Text):
                 widget.delete('1.0', END)
                 widget.insert('1.0', value)
+            elif isinstance(widget, ttk.Combobox):
+                widget.set(value)
             else:
                 widget.delete(0, END)
                 widget.insert(0, value)
@@ -191,6 +216,8 @@ class KBManager:
         for widget in self.entries:
             if isinstance(widget, Text):
                 values.append(widget.get('1.0', END).strip())
+            elif isinstance(widget, ttk.Combobox):
+                values.append(widget.get().strip())
             else:
                 values.append(widget.get().strip())
         return values
@@ -215,8 +242,8 @@ class KBManager:
         prompt = (
             'Extrahiere bis zu fünf FAQ-Einträge aus dem folgenden Text und '
             'gib sie als JSON-Liste von Objekten mit den Feldern '
-            'stone_type, product_form, grain_size_mm, eigenschaft, anwendung, '
-            'faq_question und answer_text zurück. Keine Erklärungen.'
+            'category, faq_question, answer_text, stone_type, product_form, '
+            'grain_size_mm, eigenschaft und anwendung zurück. Keine Erklärungen.'
         )
         try:
             resp = openai.ChatCompletion.create(
@@ -247,13 +274,15 @@ class KBManager:
             if isinstance(widget, Text):
                 widget.delete('1.0', END)
                 widget.insert('1.0', val)
+            elif isinstance(widget, ttk.Combobox):
+                widget.set(val)
             else:
                 widget.delete(0, END)
                 widget.insert(0, val)
 
     def check_similar(self):
         values = self.get_entry_values()
-        question = values[5]
+        question = values[6]
         sims = find_similar(self.df, question)
         self.listbox.delete(0, END)
         for score, row in sims:
@@ -266,8 +295,8 @@ class KBManager:
 
     def save_entry(self):
         values = self.get_entry_values()
-        if any(v == '' for v in values):
-            messagebox.showerror('Fehler', 'Bitte alle Felder ausfüllen.')
+        if not values[0] or not values[6] or not values[7]:
+            messagebox.showerror('Fehler', 'Kategorie, Frage und Antwort sind Pflichtfelder.')
             return
         new_row = dict(zip(COLUMNS, values))
         if self.edit_index is None:

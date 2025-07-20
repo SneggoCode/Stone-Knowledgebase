@@ -3,6 +3,20 @@
 Dieses Programm hilft dabei, eine Knowledgebase im CSV-Format zu pflegen.
 Es richtet sich speziell an die Nutzung mit einem Vapi Voice Agent.
 
+## Datenstruktur
+
+Alle Fragen und Antworten werden in einer einzigen Datei `knowledgebase.csv`
+gespeichert. Die Tabelle besitzt folgende Spalten:
+
+```
+category, faq_question, answer_text, stone_type,
+product_form, grain_size_mm, eigenschaft, anwendung
+```
+
+`category` unterscheidet z.B. `product`, `payment`, `delivery`,
+`installation` oder `warranty`. Die übrigen Felder können leer bleiben,
+wenn sie nicht zum jeweiligen Eintrag passen.
+
 ## Verwendung
 
 1. Python 3.10+ installieren.
@@ -30,8 +44,8 @@ Es richtet sich speziell an die Nutzung mit einem Vapi Voice Agent.
 
 Neben dem manuellen Einpflegen kann das Programm aus beliebigem Text neue
 FAQ-Vorschläge generieren. Dazu muss einmalig ein OpenAI-API-Key hinterlegt
-werden. Der Key kann per Umgebungsvariable `OPENAI_API_KEY` oder über den
-Button **API-Key eingeben** gesetzt werden. Anschließend kann im Feld
+werden. Der Key kann per Umgebungsvariable `OPENAI_API_KEY` oder nach
+Programmstart über den Button **API-Key eingeben** gesetzt werden. Anschließend kann im Feld
 **Text für KI-Vorschläge** ein beliebiger Fließtext eingefügt und mit
 **Vorschläge generieren** analysiert werden.
 Die gefundenen Vorschläge erscheinen unterhalb des Formulars und lassen sich
