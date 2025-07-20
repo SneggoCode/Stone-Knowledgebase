@@ -3,7 +3,7 @@ import pandas as pd
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.metrics.pairwise import cosine_similarity
 import json
-import openai
+from openai import OpenAI
 from tkinter import (
     Tk,
     Label,
@@ -61,8 +61,7 @@ class KBManager:
         master.title('Stone Knowledgebase Manager')
         self.df = load_kb().reset_index(drop=True)
         self.api_key = os.environ.get('OPENAI_API_KEY', '')
-        if self.api_key:
-            openai.api_key = self.api_key
+        self.client = OpenAI(api_key=self.api_key) if self.api_key else None
         self.suggestions = []
 
         # frames for layout
@@ -227,13 +226,13 @@ class KBManager:
         key = simpledialog.askstring('API-Key', 'OpenAI API-Key eingeben:', show='*')
         if key:
             self.api_key = key
-            openai.api_key = key
+            self.client = OpenAI(api_key=key)
 
     def generate_suggestions(self):
         """Use OpenAI to propose new FAQ entries from the source text."""
-        if not self.api_key:
+        if not self.client:
             self.set_api_key()
-            if not self.api_key:
+            if not self.client:
                 return
         text = self.source_text.get('1.0', END).strip()
         if not text:
@@ -246,7 +245,7 @@ class KBManager:
             'grain_size_mm, eigenschaft und anwendung zurück. Keine Erklärungen.'
         )
         try:
-            resp = openai.ChatCompletion.create(
+            resp = self.client.chat.completions.create(
                 model='gpt-4o',
                 messages=[{'role': 'user', 'content': prompt + '\n' + text}],
                 max_tokens=500,

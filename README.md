@@ -20,11 +20,12 @@ wenn sie nicht zum jeweiligen Eintrag passen.
 ## Verwendung
 
 1. Python 3.11 oder neuer installieren.
-
 2. Abhängigkeiten installieren:
    ```bash
    pip install -r requirements.txt
    ```
+   Die Datei benötigt `openai>=1.0`. Das Programm verwendet bereits die
+   neue clientbasierte Schnittstelle der Bibliothek.
 3. Programm starten (benötigt eine grafische Oberfläche):
    ```bash
    python kb_manager.py
