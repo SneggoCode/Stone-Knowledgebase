@@ -91,6 +91,7 @@ class KBManager:
         self.listbox = Listbox(form, width=60)
         self.listbox.grid(row=10, column=0, columnspan=2, padx=5, pady=5)
 
+
         self.tree = ttk.Treeview(table, columns=COLUMNS, show='headings')
         for col in COLUMNS:
             self.tree.heading(col, text=col)
@@ -102,7 +103,6 @@ class KBManager:
 
         self.refresh_tree()
         self.edit_index = None
-
     def refresh_tree(self):
         """Fill the treeview with all current rows."""
         for item in self.tree.get_children():

@@ -26,6 +26,7 @@ Es richtet sich speziell an die Nutzung mit einem Vapi Voice Agent.
 8. Mit **Eintrag löschen** wird die ausgewählte Zeile dauerhaft entfernt.
 9. **Neu** leert das Formular ohne zu speichern.
 
+
 Wird die Datei nicht gefunden, wird sie automatisch mit der passenden
 Spaltenstruktur erstellt.
 
