@@ -1,8 +1,9 @@
 import os
 import pandas as pd
-print("Das Programm wurde gestartet!")
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.metrics.pairwise import cosine_similarity
+import json
+import openai
 from tkinter import (
     Tk,
     Label,
@@ -15,7 +16,7 @@ from tkinter import (
     messagebox,
     Frame,
 )
-from tkinter import ttk
+from tkinter import ttk, simpledialog
 
 CSV_FILE = 'knowledgebase.csv'
 COLUMNS = ['stone_type','product_form','grain_size_mm','eigenschaft','anwendung','faq_question','answer_text']
@@ -50,6 +51,10 @@ class KBManager:
         self.master = master
         master.title('Stone Knowledgebase Manager')
         self.df = load_kb().reset_index(drop=True)
+        self.api_key = os.environ.get('OPENAI_API_KEY', '')
+        if self.api_key:
+            openai.api_key = self.api_key
+        self.suggestions = []
 
         # frames for layout
         form = Frame(master)
@@ -83,15 +88,22 @@ class KBManager:
                 ent.grid(row=i, column=1, padx=5, pady=2)
                 self.entries.append(ent)
 
-        Button(form, text='Ähnliche Fragen anzeigen', command=self.check_similar).grid(row=7, column=0, pady=5)
-        Button(form, text='Speichern', command=self.save_entry).grid(row=7, column=1, pady=5)
-        Button(form, text='Eintrag laden', command=self.load_entry).grid(row=8, column=0, pady=2)
-        Button(form, text='Eintrag löschen', command=self.delete_entry).grid(row=8, column=1, pady=2)
-        Button(form, text='Neu', command=self.clear_form).grid(row=9, column=0, columnspan=2, pady=2)
-
+        base = len(labels)
+        Label(form, text='Text für KI-Vorschläge').grid(row=base, column=0, sticky='ne')
+        self.source_text = Text(form, width=40, height=6)
+        self.source_text.grid(row=base, column=1, padx=5, pady=2)
+        Button(form, text='Vorschläge generieren', command=self.generate_suggestions).grid(row=base+1, column=0, columnspan=2, pady=5)
+        Button(form, text='Ähnliche Fragen anzeigen', command=self.check_similar).grid(row=base+2, column=0, pady=5)
+        Button(form, text='Speichern', command=self.save_entry).grid(row=base+2, column=1, pady=5)
+        Button(form, text='Eintrag laden', command=self.load_entry).grid(row=base+3, column=0, pady=2)
+        Button(form, text='Eintrag löschen', command=self.delete_entry).grid(row=base+3, column=1, pady=2)
+        Button(form, text='Neu', command=self.clear_form).grid(row=base+4, column=0, columnspan=2, pady=2)
+        self.suggestion_box = Listbox(form, width=60)
+        self.suggestion_box.grid(row=base+5, column=0, columnspan=2, padx=5, pady=5)
+        self.suggestion_box.bind('<Double-1>', lambda e: self.load_suggestion())
         self.listbox = Listbox(form, width=60)
-        self.listbox.grid(row=10, column=0, columnspan=2, padx=5, pady=5)
-
+        self.listbox.grid(row=base+6, column=0, columnspan=2, padx=5, pady=5)
+        Button(form, text='API-Key eingeben', command=self.set_api_key).grid(row=base+7, column=0, columnspan=2, pady=2)
 
         self.tree = ttk.Treeview(table, columns=COLUMNS, show='headings')
         for col in COLUMNS:
@@ -104,6 +116,7 @@ class KBManager:
 
         self.refresh_tree()
         self.edit_index = None
+
     def refresh_tree(self):
         """Fill the treeview with all current rows."""
         for item in self.tree.get_children():
@@ -182,6 +195,62 @@ class KBManager:
                 values.append(widget.get().strip())
         return values
 
+    def set_api_key(self):
+        """Prompt the user for an OpenAI API key."""
+        key = simpledialog.askstring('API-Key', 'OpenAI API-Key eingeben:', show='*')
+        if key:
+            self.api_key = key
+            openai.api_key = key
+
+    def generate_suggestions(self):
+        """Use OpenAI to propose new FAQ entries from the source text."""
+        if not self.api_key:
+            self.set_api_key()
+            if not self.api_key:
+                return
+        text = self.source_text.get('1.0', END).strip()
+        if not text:
+            messagebox.showerror('Fehler', 'Bitte zuerst einen Text eingeben.')
+            return
+        prompt = (
+            'Extrahiere bis zu fünf FAQ-Einträge aus dem folgenden Text und '
+            'gib sie als JSON-Liste von Objekten mit den Feldern '
+            'stone_type, product_form, grain_size_mm, eigenschaft, anwendung, '
+            'faq_question und answer_text zurück. Keine Erklärungen.'
+        )
+        try:
+            resp = openai.ChatCompletion.create(
+                model='gpt-4o',
+                messages=[{'role': 'user', 'content': prompt + '\n' + text}],
+                max_tokens=500,
+            )
+            content = resp.choices[0].message.content
+            data = json.loads(content)
+        except Exception as exc:
+            messagebox.showerror('Fehler', f'Konnte Vorschläge nicht generieren:\n{exc}')
+            return
+        self.suggestions = data if isinstance(data, list) else []
+        self.suggestion_box.delete(0, END)
+        for item in self.suggestions:
+            question = item.get('faq_question', '')
+            answer = item.get('answer_text', '')
+            self.suggestion_box.insert(END, f'{question} -> {answer[:40]}...')
+
+    def load_suggestion(self):
+        """Load the selected suggestion into the form."""
+        sel = self.suggestion_box.curselection()
+        if not sel:
+            return
+        suggestion = self.suggestions[sel[0]]
+        for widget, col in zip(self.entries, COLUMNS):
+            val = suggestion.get(col, '')
+            if isinstance(widget, Text):
+                widget.delete('1.0', END)
+                widget.insert('1.0', val)
+            else:
+                widget.delete(0, END)
+                widget.insert(0, val)
+
     def check_similar(self):
         values = self.get_entry_values()
         question = values[5]
@@ -202,10 +271,20 @@ class KBManager:
             return
         new_row = dict(zip(COLUMNS, values))
         if self.edit_index is None:
-            self.df = pd.concat([self.df, pd.DataFrame([new_row])], ignore_index=True)
+            self.df = self.df.append(new_row, ignore_index=True)
+            row_index = len(self.df) - 1
         else:
             row_index = self.edit_index
             for col, val in new_row.items():
                 self.df.at[row_index, col] = val
             self.edit_index = None
         save_kb(self.df)
+        messagebox.showinfo('Gespeichert', 'Eintrag wurde gespeichert.')
+        self.refresh_tree()
+        self.highlight_row(row_index)
+        self.clear_form()
+
+if __name__ == '__main__':
+    root = Tk()
+    app = KBManager(root)
+    root.mainloop()

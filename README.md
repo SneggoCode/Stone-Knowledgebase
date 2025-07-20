@@ -26,6 +26,16 @@ Es richtet sich speziell an die Nutzung mit einem Vapi Voice Agent.
 8. Mit **Eintrag löschen** wird die ausgewählte Zeile dauerhaft entfernt.
 9. **Neu** leert das Formular ohne zu speichern.
 
+## KI-Unterstützung
+
+Neben dem manuellen Einpflegen kann das Programm aus beliebigem Text neue
+FAQ-Vorschläge generieren. Dazu muss einmalig ein OpenAI-API-Key hinterlegt
+werden. Der Key kann per Umgebungsvariable `OPENAI_API_KEY` oder über den
+Button **API-Key eingeben** gesetzt werden. Anschließend kann im Feld
+**Text für KI-Vorschläge** ein beliebiger Fließtext eingefügt und mit
+**Vorschläge generieren** analysiert werden.
+Die gefundenen Vorschläge erscheinen unterhalb des Formulars und lassen sich
+einzeln in die Felder übernehmen, editieren und schließlich speichern.
 
 Wird die Datei nicht gefunden, wird sie automatisch mit der passenden
 Spaltenstruktur erstellt.
