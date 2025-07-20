@@ -10,8 +10,10 @@ gespeichert. Die Tabelle besitzt folgende Spalten:
 
 ```
 category, faq_question, answer_text, stone_type,
-product_form, grain_size_mm, eigenschaft, anwendung
+product_form, product_size, eigenschaft, anwendung
 ```
+`product_size` sollte immer die passende Einheit enthalten, beispielsweise
+`8/16 mm` oder `30 cm`.
 
 `category` unterscheidet z.B. `product`, `payment`, `delivery`,
 `installation` oder `warranty`. Die übrigen Felder können leer bleiben,
@@ -49,13 +51,20 @@ wenn sie nicht zum jeweiligen Eintrag passen.
 Neben dem manuellen Einpflegen kann das Programm aus beliebigem Text neue
 FAQ-Vorschläge generieren. Dazu muss einmalig ein OpenAI-API-Key hinterlegt
 werden. Der Key kann per Umgebungsvariable `OPENAI_API_KEY` oder nach
-Programmstart über den Button **API-Key eingeben** gesetzt werden. Anschließend kann im Feld
-**Text für KI-Vorschläge** ein beliebiger Fließtext eingefügt und mit
-**Vorschläge generieren** analysiert werden. Reicht der eingegebene Text
-nicht aus, informiert das Programm mit einem Hinweis und schlägt eine
-präzisere Formulierung vor.
-Die gefundenen Vorschläge erscheinen unterhalb des Formulars und lassen sich
-einzeln in die Felder übernehmen, editieren und schließlich speichern.
+Programmstart über den Button **API-Key eingeben** gesetzt werden.
+
+Im Feld **Text für KI-Vorschläge** kann beliebiger Text eingefügt werden.
+Mit **Vorschläge generieren** analysiert die KI den Inhalt und erstellt stets
+passende FAQ-Einträge. Selbst bei unvollständigen Texten wird mindestens ein
+Vorschlag erzeugt. Felder ohne offensichtliche Informationen werden einfach
+leer gelassen oder mit einer plausiblen Kategorie versehen.
+
+Alle generierten Vorschläge sammeln sich in einer Liste unterhalb des
+Formulars. Ein Doppelklick übernimmt einen Vorschlag in die Eingabefelder und
+entfernt ihn aus der Liste. Nicht benötigte Elemente können über
+**Vorschlag löschen** entfernt werden. Neue Aufrufe von
+**Vorschläge generieren** fügen weitere Einträge an, die bestehenden bleiben
+erhalten, bis sie geladen, gespeichert oder gelöscht wurden.
 
 Wird die Datei nicht gefunden, wird sie automatisch mit der passenden
 Spaltenstruktur erstellt.

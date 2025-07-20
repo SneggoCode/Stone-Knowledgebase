@@ -25,7 +25,7 @@ COLUMNS = [
     'answer_text',
     'stone_type',
     'product_form',
-    'grain_size_mm',
+    'product_size',
     'eigenschaft',
     'anwendung',
 ]
@@ -77,13 +77,13 @@ class KBManager:
 
         labels = [
             'Kategorie',
-            'Steinart',
-            'Produktform',
-            'Korngroesse(mm)',
-            'Eigenschaft',
-            'Anwendung',
             'Frage',
             'Antwort',
+            'Steinart',
+            'Produktform',
+            'Produktgröße',
+            'Eigenschaft',
+            'Anwendung',
         ]
         self.entries = []
         self.categories = [
@@ -121,9 +121,10 @@ class KBManager:
         self.suggestion_box = Listbox(form, width=60)
         self.suggestion_box.grid(row=base+5, column=0, columnspan=2, padx=5, pady=5)
         self.suggestion_box.bind('<Double-1>', lambda e: self.load_suggestion())
+        Button(form, text='Vorschlag löschen', command=self.delete_suggestion).grid(row=base+6, column=0, columnspan=2, pady=2)
         self.listbox = Listbox(form, width=60)
-        self.listbox.grid(row=base+6, column=0, columnspan=2, padx=5, pady=5)
-        Button(form, text='API-Key eingeben', command=self.set_api_key).grid(row=base+7, column=0, columnspan=2, pady=2)
+        self.listbox.grid(row=base+7, column=0, columnspan=2, padx=5, pady=5)
+        Button(form, text='API-Key eingeben', command=self.set_api_key).grid(row=base+8, column=0, columnspan=2, pady=2)
 
         self.tree = ttk.Treeview(table, columns=COLUMNS, show='headings')
         for col in COLUMNS:
@@ -143,6 +144,14 @@ class KBManager:
             self.tree.delete(item)
         for _, row in self.df.iterrows():
             self.tree.insert('', 'end', values=row.tolist())
+
+    def refresh_suggestion_box(self):
+        """Update the listbox with current suggestions."""
+        self.suggestion_box.delete(0, END)
+        for item in self.suggestions:
+            question = item.get('faq_question', '')
+            answer = item.get('answer_text', '')
+            self.suggestion_box.insert(END, f'{question} -> {answer[:40]}...')
 
     def animate_scroll_to(self, index, steps=10, delay=20):
         """Scroll the treeview to the given row with a short animation."""
@@ -235,18 +244,15 @@ class KBManager:
             if not self.client:
                 return
         text = self.source_text.get('1.0', END).strip()
-        if not text:
-            messagebox.showerror('Fehler', 'Bitte zuerst einen Text eingeben.')
-            return
         prompt = (
-            'Extrahiere bis zu fünf FAQ-Einträge aus dem folgenden Text. '
-            'Antworte strikt im JSON-Format. Wenn genügend Informationen '
-            'vorhanden sind, gib ein Objekt {"entries": [...]} zurück. '
-            'Jeder Eintrag benötigt die Felder category, faq_question, '
-            'answer_text, stone_type, product_form, grain_size_mm, '
-            'eigenschaft und anwendung. Sind zu wenig Daten vorhanden, '
-            'gib ein Objekt {"error": "<Hinweis>"} mit einem kurzen '
-            'Verbesserungsvorschlag zurück.'
+            'Erstelle aus dem folgenden Text bis zu fünf FAQ-Einträge. '
+            'Gib immer ein JSON-Objekt {"entries": [...]} zurück. '
+            'Jeder Eintrag besitzt die Felder category, faq_question, '
+            'answer_text, stone_type, product_form, product_size, '
+            'eigenschaft und anwendung. Nutze deine Kenntnisse, um auch '
+            'bei wenigen Informationen sinnvolle Vorschläge zu machen. '
+            'Wenn Angaben fehlen, lasse das Feld leer und gib bei '
+            'product_size immer eine Einheit wie "mm" oder "cm" an.'
         )
         try:
             resp = self.client.chat.completions.create(
@@ -257,29 +263,29 @@ class KBManager:
             )
             content = resp.choices[0].message.content
             data = json.loads(content)
-        except Exception as exc:
-            messagebox.showerror('Fehler', f'Konnte Vorschläge nicht generieren:\n{exc}')
+        except json.JSONDecodeError:
+            messagebox.showinfo('Hinweis', 'Die KI lieferte kein verwertbares Ergebnis.')
             return
-        if isinstance(data, dict) and 'error' in data:
-            messagebox.showinfo('Hinweis', data['error'])
+        except Exception as exc:
+            messagebox.showinfo('Hinweis', f'Keine Vorschläge erzeugt: {exc}')
             return
         entries = data.get('entries') if isinstance(data, dict) else data
-        self.suggestions = entries if isinstance(entries, list) else []
+        if not isinstance(entries, list):
+            messagebox.showinfo('Hinweis', 'Keine geeigneten Vorschläge gefunden.')
+            return
+        self.suggestions.extend(entries)
         if not self.suggestions:
             messagebox.showinfo('Hinweis', 'Keine geeigneten Vorschläge gefunden.')
             return
-        self.suggestion_box.delete(0, END)
-        for item in self.suggestions:
-            question = item.get('faq_question', '')
-            answer = item.get('answer_text', '')
-            self.suggestion_box.insert(END, f'{question} -> {answer[:40]}...')
+        self.refresh_suggestion_box()
 
     def load_suggestion(self):
         """Load the selected suggestion into the form."""
         sel = self.suggestion_box.curselection()
         if not sel:
             return
-        suggestion = self.suggestions[sel[0]]
+        index = sel[0]
+        suggestion = self.suggestions.pop(index)
         for widget, col in zip(self.entries, COLUMNS):
             val = suggestion.get(col, '')
             if isinstance(widget, Text):
@@ -290,10 +296,19 @@ class KBManager:
             else:
                 widget.delete(0, END)
                 widget.insert(0, val)
+        self.refresh_suggestion_box()
+
+    def delete_suggestion(self):
+        """Remove the selected suggestion from the list."""
+        sel = self.suggestion_box.curselection()
+        if not sel:
+            return
+        self.suggestions.pop(sel[0])
+        self.refresh_suggestion_box()
 
     def check_similar(self):
         values = self.get_entry_values()
-        question = values[6]
+        question = values[1]
         sims = find_similar(self.df, question)
         self.listbox.delete(0, END)
         for score, row in sims:
@@ -306,7 +321,7 @@ class KBManager:
 
     def save_entry(self):
         values = self.get_entry_values()
-        if not values[0] or not values[6] or not values[7]:
+        if not values[0] or not values[1] or not values[2]:
             messagebox.showerror('Fehler', 'Kategorie, Frage und Antwort sind Pflichtfelder.')
             return
         new_row = dict(zip(COLUMNS, values))
