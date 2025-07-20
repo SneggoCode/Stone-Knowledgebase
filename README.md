@@ -19,15 +19,18 @@ wenn sie nicht zum jeweiligen Eintrag passen.
 
 ## Verwendung
 
-1. Python 3.10+ installieren.
+1. Python 3.11 oder neuer installieren.
+
 2. Abhängigkeiten installieren:
    ```bash
    pip install -r requirements.txt
    ```
-3. Programm starten:
+3. Programm starten (benötigt eine grafische Oberfläche):
    ```bash
    python kb_manager.py
    ```
+   In einer Kopf-losen Umgebung kann ein virtuelles Display wie
+   `Xvfb` verwendet werden.
 4. Nach dem Start werden alle bestehenden Einträge rechts im Fenster angezeigt
    und lassen sich durchscrollen.
 5. Die Felder ausfüllen und auf **Ähnliche Fragen anzeigen** klicken, um

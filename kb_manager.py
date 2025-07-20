@@ -300,8 +300,8 @@ class KBManager:
             return
         new_row = dict(zip(COLUMNS, values))
         if self.edit_index is None:
-            self.df = self.df.append(new_row, ignore_index=True)
-            row_index = len(self.df) - 1
+            row_index = len(self.df)
+            self.df.loc[row_index] = new_row
         else:
             row_index = self.edit_index
             for col, val in new_row.items():
