@@ -208,13 +208,3 @@ class KBManager:
                 self.df.at[row_index, col] = val
             self.edit_index = None
         save_kb(self.df)
-
-        messagebox.showinfo('Gespeichert', 'Eintrag wurde gespeichert.')
-        self.refresh_tree()
-        self.highlight_row(row_index)
-        self.clear_form()
-
-if __name__ == '__main__':
-    root = Tk()
-    app = KBManager(root)
-    root.mainloop()
