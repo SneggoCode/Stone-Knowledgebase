@@ -239,15 +239,20 @@ class KBManager:
             messagebox.showerror('Fehler', 'Bitte zuerst einen Text eingeben.')
             return
         prompt = (
-            'Extrahiere bis zu fünf FAQ-Einträge aus dem folgenden Text und '
-            'gib sie als JSON-Liste von Objekten mit den Feldern '
-            'category, faq_question, answer_text, stone_type, product_form, '
-            'grain_size_mm, eigenschaft und anwendung zurück. Keine Erklärungen.'
+            'Extrahiere bis zu fünf FAQ-Einträge aus dem folgenden Text. '
+            'Antworte strikt im JSON-Format. Wenn genügend Informationen '
+            'vorhanden sind, gib ein Objekt {"entries": [...]} zurück. '
+            'Jeder Eintrag benötigt die Felder category, faq_question, '
+            'answer_text, stone_type, product_form, grain_size_mm, '
+            'eigenschaft und anwendung. Sind zu wenig Daten vorhanden, '
+            'gib ein Objekt {"error": "<Hinweis>"} mit einem kurzen '
+            'Verbesserungsvorschlag zurück.'
         )
         try:
             resp = self.client.chat.completions.create(
                 model='gpt-4o',
                 messages=[{'role': 'user', 'content': prompt + '\n' + text}],
+                response_format={"type": "json_object"},
                 max_tokens=500,
             )
             content = resp.choices[0].message.content
@@ -255,7 +260,14 @@ class KBManager:
         except Exception as exc:
             messagebox.showerror('Fehler', f'Konnte Vorschläge nicht generieren:\n{exc}')
             return
-        self.suggestions = data if isinstance(data, list) else []
+        if isinstance(data, dict) and 'error' in data:
+            messagebox.showinfo('Hinweis', data['error'])
+            return
+        entries = data.get('entries') if isinstance(data, dict) else data
+        self.suggestions = entries if isinstance(entries, list) else []
+        if not self.suggestions:
+            messagebox.showinfo('Hinweis', 'Keine geeigneten Vorschläge gefunden.')
+            return
         self.suggestion_box.delete(0, END)
         for item in self.suggestions:
             question = item.get('faq_question', '')

@@ -51,7 +51,9 @@ FAQ-Vorschläge generieren. Dazu muss einmalig ein OpenAI-API-Key hinterlegt
 werden. Der Key kann per Umgebungsvariable `OPENAI_API_KEY` oder nach
 Programmstart über den Button **API-Key eingeben** gesetzt werden. Anschließend kann im Feld
 **Text für KI-Vorschläge** ein beliebiger Fließtext eingefügt und mit
-**Vorschläge generieren** analysiert werden.
+**Vorschläge generieren** analysiert werden. Reicht der eingegebene Text
+nicht aus, informiert das Programm mit einem Hinweis und schlägt eine
+präzisere Formulierung vor.
 Die gefundenen Vorschläge erscheinen unterhalb des Formulars und lassen sich
 einzeln in die Felder übernehmen, editieren und schließlich speichern.
 
