@@ -201,14 +201,14 @@ class KBManager:
             return
         new_row = dict(zip(COLUMNS, values))
         if self.edit_index is None:
-            self.df = self.df.append(new_row, ignore_index=True)
-            row_index = len(self.df) - 1
+            self.df = pd.concat([self.df, pd.DataFrame([new_row])], ignore_index=True)
         else:
             row_index = self.edit_index
             for col, val in new_row.items():
                 self.df.at[row_index, col] = val
             self.edit_index = None
         save_kb(self.df)
+
         messagebox.showinfo('Gespeichert', 'Eintrag wurde gespeichert.')
         self.refresh_tree()
         self.highlight_row(row_index)
