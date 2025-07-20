@@ -20,6 +20,7 @@ wenn sie nicht zum jeweiligen Eintrag passen.
 ## Verwendung
 
 1. Python 3.11 oder neuer installieren.
+
 2. Abhängigkeiten installieren:
    ```bash
    pip install -r requirements.txt
