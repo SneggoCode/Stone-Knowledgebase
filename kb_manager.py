@@ -166,8 +166,3 @@ class KBManager:
         self.listbox.delete(0, END)
         self.refresh_tree()
         self.highlight_row(len(self.df) - 1)
-
-if __name__ == '__main__':
-    root = Tk()
-    app = KBManager(root)
-    root.mainloop()
