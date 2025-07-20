@@ -14,9 +14,13 @@ Es richtet sich speziell an die Nutzung mit einem Vapi Voice Agent.
    ```bash
    python kb_manager.py
    ```
-4. Im Fenster die Felder ausfüllen und auf **Ähnliche Fragen anzeigen** klicken,
-   um bereits vorhandene oder ähnliche FAQ-Einträge zu sehen.
-5. Mit **Speichern** wird der Eintrag in `knowledgebase.csv` angehängt.
+4. Nach dem Start werden alle bestehenden Einträge rechts im Fenster angezeigt
+   und lassen sich durchscrollen.
+5. Die Felder ausfüllen und auf **Ähnliche Fragen anzeigen** klicken, um
+   vorhandene oder ähnliche FAQ-Einträge zu suchen. Die Tabelle scrollt
+   automatisch zum besten Treffer.
+6. Mit **Speichern** wird der Eintrag in `knowledgebase.csv` angehängt und in
+   der Tabelle markiert.
 
 Wird die Datei nicht gefunden, wird sie automatisch mit der passenden
 Spaltenstruktur erstellt.
