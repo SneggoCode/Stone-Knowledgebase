@@ -84,9 +84,13 @@ class KBManager:
 
         Button(form, text='Ähnliche Fragen anzeigen', command=self.check_similar).grid(row=7, column=0, pady=5)
         Button(form, text='Speichern', command=self.save_entry).grid(row=7, column=1, pady=5)
+        Button(form, text='Eintrag laden', command=self.load_entry).grid(row=8, column=0, pady=2)
+        Button(form, text='Eintrag löschen', command=self.delete_entry).grid(row=8, column=1, pady=2)
+        Button(form, text='Neu', command=self.clear_form).grid(row=9, column=0, columnspan=2, pady=2)
 
         self.listbox = Listbox(form, width=60)
-        self.listbox.grid(row=8, column=0, columnspan=2, padx=5, pady=5)
+        self.listbox.grid(row=10, column=0, columnspan=2, padx=5, pady=5)
+
 
         self.tree = ttk.Treeview(table, columns=COLUMNS, show='headings')
         for col in COLUMNS:
@@ -98,7 +102,7 @@ class KBManager:
         self.tree_scroll.grid(row=0, column=1, sticky='ns')
 
         self.refresh_tree()
-
+        self.edit_index = None
     def refresh_tree(self):
         """Fill the treeview with all current rows."""
         for item in self.tree.get_children():
@@ -126,6 +130,47 @@ class KBManager:
             self.tree.selection_set(iid)
             self.tree.focus(iid)
             self.animate_scroll_to(index)
+
+    def clear_form(self):
+        """Clear all entry widgets and reset edit mode."""
+        for widget in self.entries:
+            if isinstance(widget, Text):
+                widget.delete('1.0', END)
+            else:
+                widget.delete(0, END)
+        self.listbox.delete(0, END)
+        self.edit_index = None
+
+    def load_entry(self):
+        """Load the selected row from the table into the form for editing."""
+        selection = self.tree.selection()
+        if not selection:
+            messagebox.showerror('Fehler', 'Bitte zuerst einen Eintrag auswählen.')
+            return
+        index = self.tree.index(selection[0])
+        row = self.df.iloc[index]
+        for widget, col in zip(self.entries, COLUMNS):
+            value = str(row[col]) if pd.notna(row[col]) else ''
+            if isinstance(widget, Text):
+                widget.delete('1.0', END)
+                widget.insert('1.0', value)
+            else:
+                widget.delete(0, END)
+                widget.insert(0, value)
+        self.edit_index = index
+
+    def delete_entry(self):
+        """Delete the selected row from the table and CSV."""
+        selection = self.tree.selection()
+        if not selection:
+            messagebox.showerror('Fehler', 'Bitte zuerst einen Eintrag auswählen.')
+            return
+        index = self.tree.index(selection[0])
+        if messagebox.askyesno('Löschen', 'Ausgewählten Eintrag wirklich löschen?'):
+            self.df = self.df.drop(self.df.index[index]).reset_index(drop=True)
+            save_kb(self.df)
+            self.refresh_tree()
+            self.edit_index = None
 
     def get_entry_values(self):
         values = []
@@ -155,14 +200,21 @@ class KBManager:
             messagebox.showerror('Fehler', 'Bitte alle Felder ausfüllen.')
             return
         new_row = dict(zip(COLUMNS, values))
-        self.df = self.df.append(new_row, ignore_index=True)
+        if self.edit_index is None:
+            self.df = self.df.append(new_row, ignore_index=True)
+            row_index = len(self.df) - 1
+        else:
+            row_index = self.edit_index
+            for col, val in new_row.items():
+                self.df.at[row_index, col] = val
+            self.edit_index = None
         save_kb(self.df)
         messagebox.showinfo('Gespeichert', 'Eintrag wurde gespeichert.')
-        for widget in self.entries:
-            if isinstance(widget, Text):
-                widget.delete('1.0', END)
-            else:
-                widget.delete(0, END)
-        self.listbox.delete(0, END)
         self.refresh_tree()
-        self.highlight_row(len(self.df) - 1)
+        self.highlight_row(row_index)
+        self.clear_form()
+
+if __name__ == '__main__':
+    root = Tk()
+    app = KBManager(root)
+    root.mainloop()

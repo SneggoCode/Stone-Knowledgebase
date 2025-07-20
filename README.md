@@ -19,8 +19,13 @@ Es richtet sich speziell an die Nutzung mit einem Vapi Voice Agent.
 5. Die Felder ausfüllen und auf **Ähnliche Fragen anzeigen** klicken, um
    vorhandene oder ähnliche FAQ-Einträge zu suchen. Die Tabelle scrollt
    automatisch zum besten Treffer.
-6. Mit **Speichern** wird der Eintrag in `knowledgebase.csv` angehängt und in
-   der Tabelle markiert.
+6. Mit **Speichern** wird der Eintrag in `knowledgebase.csv` angehängt oder –
+   wenn vorher ein Datensatz geladen wurde – aktualisiert.
+7. Über **Eintrag laden** kann eine markierte Zeile zum Bearbeiten in das
+   Formular übernommen werden.
+8. Mit **Eintrag löschen** wird die ausgewählte Zeile dauerhaft entfernt.
+9. **Neu** leert das Formular ohne zu speichern.
+
 
 Wird die Datei nicht gefunden, wird sie automatisch mit der passenden
 Spaltenstruktur erstellt.
