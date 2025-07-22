@@ -70,7 +70,6 @@ Code-Stil:
 pytest
 flake8
 ```
-
 ## KI-Unterstützung
 
 Neben dem manuellen Einpflegen kann das Programm aus beliebigem Text neue
