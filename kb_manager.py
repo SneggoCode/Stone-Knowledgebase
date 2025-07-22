@@ -8,6 +8,7 @@ from pydantic import BaseModel, field_validator
 from openai import OpenAI
 from language_tool_python import LanguageTool
 import threading
+from collections import dequen
 from tkinter import (
     Label,
     Entry,
@@ -299,6 +300,7 @@ class KBManager:
             borderwidth=1,
             bordercolor="#555555",
         )
+        self.style.configure("Treeview", rowheight=80)
         self.tooltips = load_tooltips()
         self.csv_file = get_csv_path()
         self.df = load_kb(self.csv_file).reset_index(drop=True)
@@ -311,6 +313,7 @@ class KBManager:
         self.current_suggestion_index = None
         self.embeddings = []
         self.trash = []
+        self.form_history = deque(maxlen=5)
         self.search_after_id = None
         self.spell_after = {}
         if self.client and not self.df.empty:
@@ -331,10 +334,22 @@ class KBManager:
         master.rowconfigure(1, weight=1)
         table.columnconfigure(0, weight=1)
         table.rowconfigure(1, weight=1)
+        table.rowconfigure(2, weight=0)
         self.form.columnconfigure(1, weight=1)
 
         self.entries = []
         self.categories = CATEGORIES
+
+        self.form_block = Frame(self.form, background="#f2f2f2", bd=1, relief="solid")
+        self.form_block.grid(row=0, column=0, sticky="nsew", pady=(0, 5))
+        self.form_block.columnconfigure(1, weight=1)
+        Label(
+            self.form_block,
+            text="Formular",
+            font=("Aptos", 12, "bold"),
+            foreground="gray",
+            background="#f2f2f2",
+        ).grid(row=0, column=0, columnspan=2, sticky="w", padx=5, pady=(2, 4))
 
         fields = [
             (
@@ -352,114 +367,101 @@ class KBManager:
             ("Anwendung", Entry, "anwendung", {}),
         ]
 
-        for i, (lbl, widget_cls, key, opts) in enumerate(fields):
-            Label(self.form, text=lbl).grid(row=i, column=0, sticky="e", pady=2)
+        for i, (lbl, widget_cls, key, opts) in enumerate(fields, start=1):
+            Label(self.form_block, text=lbl, background="#f2f2f2").grid(
+                row=i, column=0, sticky="e", pady=2
+            )
             if widget_cls is Text:
-                widget = widget_cls(self.form, width=60, **opts)
+                widget = widget_cls(self.form_block, width=60, **opts)
                 if key in {"faq_question", "answer_text"}:
                     widget.bind(
                         "<KeyRelease>",
                         lambda e, w=widget: self.schedule_spellcheck(w),
                     )
             elif widget_cls is ttk.Combobox:
-                widget = widget_cls(self.form, **opts)
+                widget = widget_cls(self.form_block, **opts)
             else:
-                widget = widget_cls(self.form, width=60)
+                widget = widget_cls(self.form_block, width=60)
             widget.grid(row=i, column=1, padx=5, pady=2, sticky="ew")
             Tooltip(widget, self.tooltips.get(key, ""))
             self.entries.append(widget)
 
-        self.form.columnconfigure(1, weight=1)
+        btn_row = len(fields) + 1
+        manage = Frame(self.form_block, background="#f2f2f2")
+        manage.grid(row=btn_row, column=0, columnspan=2, pady=5, sticky="w")
+        self.sim_button = tb.Button(manage, text="🔍 Ähnliche Einträge", command=self.check_similar)
+        self.sim_button.pack(side="left", padx=2)
+        Tooltip(self.sim_button, "Suche in der Tabelle nach ähnlichen Fragen")
+        self.new_button = tb.Button(manage, text="🧹 Formular leeren", command=self.clear_form)
+        self.new_button.pack(side="left", padx=2)
+        Tooltip(self.new_button, "Formular leeren")
+        self.undo_button = tb.Button(manage, text="↩️ Rückgängig", command=self.undo_action)
+        self.undo_button.pack(side="left", padx=2)
+        Tooltip(self.undo_button, "Letzte Aktion zurücknehmen")
+        self.save_button = tb.Button(manage, text="💾 Speichern", command=self.save_entry, bootstyle="success")
+        self.save_button.pack(side="left", padx=2)
+        Tooltip(self.save_button, "Eintrag speichern")
+        self.delete_button = tb.Button(manage, text="🗑 Entfernen", command=self.delete_entry, bootstyle="danger")
+        self.delete_button.pack(side="left", padx=2)
+        Tooltip(self.delete_button, "Markierten Eintrag löschen")
 
-        base = len(fields)
-        Label(self.form, text="Text für KI-Vorschläge").grid(row=base, column=0, sticky="ne")
-        self.source_text = Text(self.form, width=60, height=6)
-        self.source_text.grid(row=base, column=1, padx=5, pady=2, sticky="ew")
+        self.ai_block = Frame(self.form, background="#f2f2f2", bd=1, relief="solid")
+        self.ai_block.grid(row=1, column=0, sticky="nsew")
+        self.ai_block.columnconfigure(1, weight=1)
+        Label(
+            self.ai_block,
+            text="KI-Vorschläge",
+            font=("Aptos", 12, "bold"),
+            foreground="gray",
+            background="#f2f2f2",
+        ).grid(row=0, column=0, columnspan=2, sticky="w", padx=5, pady=(2, 4))
+        Label(self.ai_block, text="Text für KI-Vorschläge", background="#f2f2f2").grid(row=1, column=0, sticky="ne")
+        self.source_text = Text(self.ai_block, width=60, height=6)
+        self.source_text.grid(row=1, column=1, padx=5, pady=2, sticky="ew")
         Tooltip(self.source_text, self.tooltips.get("source", ""))
-        btn_row = base + 1
         self.gen_button = tb.Button(
-            self.form,
+            self.ai_block,
             text="🧠 Vorschläge generieren",
             command=self.generate_suggestions,
             bootstyle="primary",
         )
-        self.gen_button.grid(row=btn_row, column=0, pady=(5, 0), sticky="w")
+        self.gen_button.grid(row=2, column=0, pady=(5, 0), sticky="w")
         Tooltip(self.gen_button, "KI analysiert den Text und erstellt Vorschläge")
         self.ai_message_var = StringVar()
         self.ai_message_label = Label(
-            self.form, textvariable=self.ai_message_var, foreground="red"
+            self.ai_block,
+            textvariable=self.ai_message_var,
+            foreground="red",
+            background="#f2f2f2",
         )
-        self.ai_message_label.grid(row=btn_row, column=1, sticky="w")
-        btn_row += 1
-        self.sim_button = tb.Button(
-            self.form,
-            text="🔍 Ähnliche Fragen",
-            command=self.check_similar,
-        )
-        self.sim_button.grid(row=btn_row, column=0, sticky="e", pady=5, padx=2)
-        Tooltip(self.sim_button, "Suche in der Tabelle nach ähnlichen Fragen")
-        self.save_button = tb.Button(
-            self.form,
-            text="💾 Speichern",
-            command=self.save_entry,
-            bootstyle="success",
-        )
-        self.save_button.grid(row=btn_row, column=1, sticky="w", pady=5, padx=2)
-        Tooltip(self.save_button, "Eintrag speichern")
-        btn_row += 1
-        manage = Frame(self.form)
-        manage.grid(row=btn_row, column=0, columnspan=2, pady=2)
-        self.load_button = tb.Button(
-            manage, text="📂 Laden", command=self.load_entry
-        )
-        self.load_button.pack(side="left", padx=2)
-        Tooltip(self.load_button, "Markierten Eintrag bearbeiten")
-        self.delete_button = tb.Button(
-            manage,
-            text="🗑 Löschen",
-            command=self.delete_entry,
-            bootstyle="danger",
-        )
-        self.delete_button.pack(side="left", padx=2)
-        Tooltip(self.delete_button, "Markierten Eintrag löschen")
-        self.undo_button = tb.Button(
-            manage, text="↩️ Rückgängig", command=self.undo_delete
-        )
-        self.undo_button.pack(side="left", padx=2)
-        Tooltip(self.undo_button, "Letzten Löschvorgang zurücknehmen")
-        self.new_button = tb.Button(manage, text="➕ Neu", command=self.clear_form)
-        self.new_button.pack(side="left", padx=2)
-        Tooltip(self.new_button, "Formular leeren")
-        btn_row += 1
-        self.suggestion_box = Listbox(self.form)
+        self.ai_message_label.grid(row=2, column=1, sticky="w")
+        self.suggestion_box = Listbox(self.ai_block)
         self.suggestion_box.grid(
-            row=btn_row,
+            row=3,
             column=0,
             columnspan=2,
             padx=5,
             pady=5,
             sticky="nsew",
         )
-        self.form.rowconfigure(btn_row, weight=1)
+        self.ai_block.rowconfigure(3, weight=1)
         self.suggestion_box.bind("<Double-1>", lambda e: self.load_suggestion())
         self.suggestion_box.bind("<ButtonRelease-1>", lambda e: self.load_suggestion())
-        btn_row += 1
         del_btn = tb.Button(
-            self.form,
+            self.ai_block,
             text="🗑 Vorschlag löschen",
             command=self.delete_suggestion,
             bootstyle="danger",
         )
-        del_btn.grid(row=btn_row, column=0, columnspan=2, pady=2)
+        del_btn.grid(row=4, column=0, columnspan=2, pady=2)
         Tooltip(del_btn, "Entfernt den gewählten Vorschlag")
-        btn_row += 1
         key_btn = tb.Button(
-            self.form,
+            self.ai_block,
             text="🔑 API-Key eingeben",
             command=self.set_api_key,
             bootstyle="secondary",
         )
-        key_btn.grid(row=btn_row, column=0, columnspan=2, pady=2)
+        key_btn.grid(row=5, column=0, columnspan=2, pady=2)
         Tooltip(key_btn, "OpenAI API-Key festlegen")
 
         filter_frame = Frame(table)
@@ -482,9 +484,13 @@ class KBManager:
             )
             self.tree.column(col, width=120, anchor="w")
         self.tree_scroll = Scrollbar(table, orient="vertical", command=self.tree.yview)
-        self.tree.configure(yscrollcommand=self.tree_scroll.set)
+        self.tree_xscroll = Scrollbar(table, orient="horizontal", command=self.tree.xview)
+        self.tree.configure(
+            yscrollcommand=self.tree_scroll.set, xscrollcommand=self.tree_xscroll.set
+        )
         self.tree.grid(row=1, column=0, sticky="nsew")
         self.tree_scroll.grid(row=1, column=1, sticky="ns")
+        self.tree_xscroll.grid(row=2, column=0, sticky="ew")
         self.tree.bind("<<TreeviewSelect>>", lambda e: None)
         self.tree.bind("<Double-1>", lambda e: self.load_entry())
         self.tree.tag_configure("match", background="#ffff99")
@@ -514,16 +520,13 @@ class KBManager:
         """Fill the treeview with all current rows."""
         for item in self.tree.get_children():
             self.tree.delete(item)
-        max_lines = 1
         for _, row in self.df.iterrows():
             values = []
             for col in COLUMNS:
                 text = str(row[col])
-                wrapped = textwrap.fill(text, 30)
-                values.append(wrapped)
-                max_lines = max(max_lines, wrapped.count("\n") + 1)
+                short = textwrap.shorten(text, width=80, placeholder="…")
+                values.append(short)
             self.tree.insert("", "end", values=values)
-        ttk.Style().configure("Treeview", rowheight=20 * max_lines)
 
     def apply_filter(self):
         term = self.filter_text.get().strip()
@@ -538,7 +541,7 @@ class KBManager:
             axis=1,
         )
         for _, row in self.df[mask].iterrows():
-            values = [textwrap.fill(str(row[c]), 30) for c in COLUMNS]
+            values = [textwrap.shorten(str(row[c]), width=80, placeholder="…") for c in COLUMNS]
             self.tree.insert("", "end", values=values, tags=("match",))
         self.master.after_cancel(show_id)
         self.stop_progress()
@@ -621,7 +624,6 @@ class KBManager:
             self.source_text,
             self.sim_button,
             self.save_button,
-            self.load_button,
             self.delete_button,
             self.undo_button,
             self.new_button,
@@ -638,7 +640,6 @@ class KBManager:
             self.source_text,
             self.sim_button,
             self.save_button,
-            self.load_button,
             self.delete_button,
             self.undo_button,
             self.new_button,
@@ -682,21 +683,15 @@ class KBManager:
         self.message_label.configure(foreground=color)
         if error or success or info:
             root = self.master
-            x = root.winfo_rootx() + root.winfo_width() - 20
-            y = root.winfo_rooty() + root.winfo_height() - 20
-            screen_w = root.winfo_screenwidth()
-            screen_h = root.winfo_screenheight()
-            anchor = "nw"
-            if x > screen_w or y > screen_h or x < 0 or y < 0:
-                x = root.winfo_rootx() + root.winfo_width() // 2
-                y = root.winfo_rooty() + root.winfo_height() - 20
-                anchor = "s"
+            x = root.winfo_rootx() + root.winfo_width() / 2
+            y = root.winfo_rooty() + root.winfo_height() / 2
             ToastNotification(
                 title="",
                 message=message,
                 duration=4000,
-                bootstyle="secondary",
-                position=(x, y, anchor),
+                bootstyle="dark",
+                position=(int(x), int(y), "center"),
+                alpha=0.8,
             ).show_toast()
         self.master.after(5000, lambda: self.message_var.set(""))
 
@@ -717,6 +712,7 @@ class KBManager:
 
     def clear_form(self):
         """Clear all entry widgets and reset edit mode."""
+        self.push_history()
         for widget in self.entries:
             if isinstance(widget, Text):
                 widget.delete("1.0", END)
@@ -734,6 +730,7 @@ class KBManager:
         if not selection:
             self.show_message("Bitte zuerst einen Eintrag auswählen.", error=True)
             return
+        self.push_history()
         index = self.tree.index(selection[0])
         row = self.df.iloc[index]
         for widget, col in zip(self.entries, COLUMNS):
@@ -763,15 +760,30 @@ class KBManager:
         self.edit_index = None
         self.show_message("Eintrag gelöscht.", success=True)
 
-    def undo_delete(self):
-        if not self.trash:
-            self.show_message("Kein Eintrag zum Wiederherstellen.", error=True)
+    def undo_action(self):
+        """Undo last delete or form change."""
+        if self.trash:
+            row = self.trash.pop()
+            self.df.loc[len(self.df)] = row
+            save_kb(self.df, self.csv_file)
+            self.refresh_tree()
+            self.show_message("Eintrag wiederhergestellt.", success=True)
             return
-        row = self.trash.pop()
-        self.df.loc[len(self.df)] = row
-        save_kb(self.df, self.csv_file)
-        self.refresh_tree()
-        self.show_message("Eintrag wiederhergestellt.", success=True)
+        if not self.form_history:
+            self.show_message("Nichts zum Rückgängig machen.", error=True)
+            return
+        state = self.form_history.pop()
+        for widget, col in zip(self.entries, COLUMNS):
+            val = state.get(col, "")
+            if isinstance(widget, Text):
+                widget.delete("1.0", END)
+                widget.insert("1.0", val)
+            elif isinstance(widget, ttk.Combobox):
+                widget.set(val)
+            else:
+                widget.delete(0, END)
+                widget.insert(0, val)
+        self.show_message("Formular wiederhergestellt.", info=True)
 
     def schedule_spellcheck(self, widget):
         """Debounce and start asynchronous spell checking."""
@@ -815,6 +827,10 @@ class KBManager:
             else:
                 values.append(widget.get().strip())
         return dict(zip(COLUMNS, values))
+
+    def push_history(self):
+        """Save current form state."""
+        self.form_history.append(self.get_entry_values())
 
     def set_api_key(self):
         """Prompt the user for an OpenAI API key."""
@@ -871,6 +887,7 @@ class KBManager:
         sel = self.suggestion_box.curselection()
         if not sel:
             return
+        self.push_history()
         index = sel[0]
         suggestion = self.suggestions[index]
         self.current_suggestion_index = index
@@ -889,6 +906,8 @@ class KBManager:
                 widget.delete(0, END)
                 widget.insert(0, val)
         self.highlight_form()
+        self.suggestions.pop(index)
+        self.refresh_suggestion_box()
 
     def delete_suggestion(self):
         """Remove the selected suggestion from the list."""
@@ -923,12 +942,6 @@ class KBManager:
         if data["category"] not in CATEGORIES:
             self.show_message("Ungültige Kategorie", error=True)
             return
-        if (
-            self.entries[1].tag_ranges("misspell")
-            or self.entries[2].tag_ranges("misspell")
-        ):
-            self.show_message("Rechtschreibfehler vorhanden", error=True)
-            return
         for k in COLUMNS:
             if k not in {"faq_question", "answer_text"} and not data[k]:
                 data[k] = "Keine Angabe"
@@ -947,6 +960,7 @@ class KBManager:
             self.edit_index = None
         save_kb(self.df, self.csv_file)
         self.show_message("Eintrag wurde gespeichert.", success=True)
+        self.form_history.clear()
         self.refresh_tree()
         self.highlight_row(row_index)
         self.clear_form()
