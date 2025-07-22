@@ -1,4 +1,5 @@
 import os
+import sys
 import pandas as pd
 import numpy as np
 import json
@@ -18,6 +19,9 @@ from tkinter import (
 )
 from tkinter import ttk, simpledialog
 
+
+VERSION = os.environ.get("PR_NUMBER", "dev")
+
 CSV_FILE = 'knowledgebase.csv'
 COLUMNS = [
     'category',
@@ -29,6 +33,19 @@ COLUMNS = [
     'eigenschaft',
     'anwendung',
 ]
+
+PROMPT_TEMPLATE = """
+System: Du bist Stone Knowledgebase Codex.
+Du bist ein gewissenhafter FAQ-Generator für telefonischen Kundensupport.
+Erstelle immer bis zu 5 FAQ-Einträge – auch wenn der Eingabetext keine Fragen enthält; formuliere dann selbst passende Fragen.
+Gib ausschließlich das folgende JSON-Format zurück (kein zusätzlicher Text!):
+
+{"entries":[{"category":"product|payment|delivery|installation|warranty","faq_question":"string","answer_text":"string","stone_type":"string","product_form":"string","product_size":"string (inkl. Einheit)","eigenschaft":"string","anwendung":"string"}]}
+
+User: Erstelle FAQ-Einträge aus diesem Rohtext (Deutsch):
+"""  # noqa: E501
+
+FALLBACK_HINT = "Bitte erstelle passende FAQ-Einträge, selbst wenn der Text kaum Informationen enthält.\n"
 
 
 class FAQEntry(BaseModel):
@@ -48,6 +65,7 @@ class FAQEntry(BaseModel):
                 return v + ' mm'
         return v
 
+
 def load_kb():
     """Load the knowledge base from CSV or return an empty DataFrame."""
     if os.path.exists(CSV_FILE):
@@ -57,9 +75,11 @@ def load_kb():
         return df
     return pd.DataFrame(columns=COLUMNS)
 
+
 def save_kb(df):
     """Persist the DataFrame back to the CSV file."""
     df.reindex(columns=COLUMNS).to_csv(CSV_FILE, index=False)
+
 
 def cosine(a, b):
     a = np.array(a)
@@ -90,6 +110,46 @@ def find_similar(df, question, client, existing_embeddings=None, top_n=3):
             row = df.iloc[i]
             results.append((sims[i], row))
     return results
+
+
+def generate_suggestions(text, client):
+    """Return FAQ suggestions from OpenAI."""
+    prompt = PROMPT_TEMPLATE + text
+    resp = client.chat.completions.create(
+        model="gpt-4o",
+        messages=[{"role": "user", "content": prompt}],
+        response_format={"type": "json_object"},
+        max_tokens=500,
+    )
+    content = resp.choices[0].message.content
+    try:
+        data = json.loads(content)
+    except json.JSONDecodeError as exc:
+        exc.raw_content = content
+        raise
+    entries = data.get("entries") if isinstance(data, dict) else None
+    if not entries:
+        resp = client.chat.completions.create(
+            model="gpt-4o",
+            messages=[{"role": "user", "content": PROMPT_TEMPLATE + FALLBACK_HINT + text}],
+            response_format={"type": "json_object"},
+            max_tokens=500,
+        )
+        content = resp.choices[0].message.content
+        try:
+            data = json.loads(content)
+        except json.JSONDecodeError as exc:
+            exc.raw_content = content
+            raise
+        entries = data.get("entries") if isinstance(data, dict) else []
+    result = []
+    for e in entries or []:
+        try:
+            result.append(FAQEntry(**e).dict())
+        except Exception:
+            continue
+    return result
+
 
 class KBManager:
     def __init__(self, master):
@@ -152,23 +212,47 @@ class KBManager:
         Label(form, text='Text für KI-Vorschläge').grid(row=base, column=0, sticky='ne')
         self.source_text = Text(form, width=40, height=6)
         self.source_text.grid(row=base, column=1, padx=5, pady=2)
-        Button(form, text='Vorschläge generieren', command=self.generate_suggestions).grid(row=base+1, column=0, columnspan=2, pady=5)
-        Button(form, text='Ähnliche Fragen anzeigen', command=self.check_similar).grid(row=base+2, column=0, pady=5)
-        Button(form, text='Speichern', command=self.save_entry).grid(row=base+2, column=1, pady=5)
-        Button(form, text='Eintrag laden', command=self.load_entry).grid(row=base+3, column=0, pady=2)
-        Button(form, text='Eintrag löschen', command=self.delete_entry).grid(row=base+3, column=1, pady=2)
-        Button(form, text='Rückgängig Löschen', command=self.undo_delete).grid(row=base+4, column=0, columnspan=2, pady=2)
-        Button(form, text='Neu', command=self.clear_form).grid(row=base+5, column=0, columnspan=2, pady=2)
+        Button(
+            form,
+            text='Vorschläge generieren',
+            command=self.generate_suggestions,
+        ).grid(row=base+1, column=0, columnspan=2, pady=5)
+        Button(
+            form,
+            text='Ähnliche Fragen anzeigen',
+            command=self.check_similar,
+        ).grid(row=base+2, column=0, pady=5)
+        Button(form, text='Speichern', command=self.save_entry).grid(
+            row=base+2, column=1, pady=5
+        )
+        Button(form, text='Eintrag laden', command=self.load_entry).grid(
+            row=base+3, column=0, pady=2
+        )
+        Button(form, text='Eintrag löschen', command=self.delete_entry).grid(
+            row=base+3, column=1, pady=2
+        )
+        Button(form, text='Rückgängig Löschen', command=self.undo_delete).grid(
+            row=base+4, column=0, columnspan=2, pady=2
+        )
+        Button(form, text='Neu', command=self.clear_form).grid(
+            row=base+5, column=0, columnspan=2, pady=2
+        )
         self.suggestion_box = Listbox(form, width=60)
         self.suggestion_box.grid(row=base+6, column=0, columnspan=2, padx=5, pady=5)
         self.suggestion_box.bind('<Double-1>', lambda e: self.load_suggestion())
-        Button(form, text='Vorschlag löschen', command=self.delete_suggestion).grid(row=base+7, column=0, columnspan=2, pady=2)
+        Button(
+            form,
+            text='Vorschlag löschen',
+            command=self.delete_suggestion,
+        ).grid(row=base+7, column=0, columnspan=2, pady=2)
         self.listbox = Listbox(form, width=60)
         self.listbox.grid(row=base+8, column=0, columnspan=2, padx=5, pady=5)
-        Button(form, text='API-Key eingeben', command=self.set_api_key).grid(row=base+9, column=0, columnspan=2, pady=2)
+        Button(form, text='API-Key eingeben', command=self.set_api_key).grid(
+            row=base+9, column=0, columnspan=2, pady=2
+        )
 
         filter_frame = Frame(table)
-        filter_frame.grid(row=0, column=0, columnspan=2, sticky='ew', pady=(0,4))
+        filter_frame.grid(row=0, column=0, columnspan=2, sticky='ew', pady=(0, 4))
         Label(filter_frame, text='Filter:').pack(side='left')
         self.filter_var = ttk.Entry(filter_frame)
         self.filter_var.pack(side='left', fill='x', expand=True)
@@ -188,6 +272,8 @@ class KBManager:
 
         self.refresh_tree()
         self.edit_index = None
+
+        Label(master, text=f"Version {VERSION}").grid(row=1, column=0, sticky='w', padx=5, pady=2)
 
     def refresh_tree(self):
         """Fill the treeview with all current rows."""
@@ -318,7 +404,6 @@ class KBManager:
             return None
         return entry.dict()
 
-
     def set_api_key(self):
         """Prompt the user for an OpenAI API key."""
         key = simpledialog.askstring('API-Key', 'OpenAI API-Key eingeben:', show='*')
@@ -345,55 +430,22 @@ class KBManager:
             return ''
 
     def generate_suggestions(self):
-        """Use OpenAI to propose new FAQ entries from the source text."""
+        """Generate suggestions via OpenAI and update the list."""
         if not self.client:
             self.set_api_key()
             if not self.client:
                 return
         text = self.source_text.get('1.0', END).strip()
-        if len(text.split()) < 3:
-            hint = self.suggest_improvement(text)
-            if hint:
-                messagebox.showinfo('Hinweis', hint)
-            else:
-                messagebox.showinfo('Hinweis', 'Bitte mehr Kontext eingeben, um Vorschl\u00e4ge zu erhalten.')
-            return
-        prompt = (
-            'Erstelle aus dem folgenden Text bis zu fünf FAQ-Einträge. '
-            'Gib immer ein JSON-Objekt {"entries": [...]} zurück. '
-            'Jeder Eintrag besitzt die Felder category, faq_question, '
-            'answer_text, stone_type, product_form, product_size, '
-            'eigenschaft und anwendung. Nutze deine Kenntnisse, um auch '
-            'bei wenigen Informationen sinnvolle Vorschläge zu machen. '
-            'Wenn Angaben fehlen, lasse das Feld leer und gib bei '
-            'product_size immer eine Einheit wie "mm" oder "cm" an.'
-        )
         try:
-            resp = self.client.chat.completions.create(
-                model='gpt-4o',
-                messages=[{'role': 'user', 'content': prompt + '\n' + text}],
-                response_format={"type": "json_object"},
-                max_tokens=500,
-            )
-            content = resp.choices[0].message.content
-            data = json.loads(content)
-        except json.JSONDecodeError:
-            messagebox.showinfo('Hinweis', 'Die KI lieferte kein verwertbares Ergebnis.')
+            new_entries = generate_suggestions(text, self.client)
+        except json.JSONDecodeError as exc:
+            messagebox.showerror('JSON-Fehler', getattr(exc, 'raw_content', ''))
             return
         except Exception as exc:
-            messagebox.showinfo('Hinweis', f'Keine Vorschläge erzeugt: {exc}')
-            return
-        entries = data.get('entries') if isinstance(data, dict) else data
-        if not isinstance(entries, list):
-            messagebox.showinfo('Hinweis', 'Keine geeigneten Vorschläge gefunden.')
-            return
-        for e in entries:
-            try:
-                validated = FAQEntry(**e).dict()
-                self.suggestions.append(validated)
-            except Exception:
-                continue
-        if not self.suggestions:
+            print(f'Error: {exc}', file=sys.stderr)
+            raise
+        self.suggestions.extend(new_entries)
+        if not new_entries:
             messagebox.showinfo('Hinweis', 'Keine geeigneten Vorschläge gefunden.')
             return
         self.refresh_suggestion_box()
@@ -465,6 +517,7 @@ class KBManager:
         self.refresh_tree()
         self.highlight_row(row_index)
         self.clear_form()
+
 
 if __name__ == '__main__':
     root = Tk()

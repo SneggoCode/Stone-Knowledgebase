@@ -53,6 +53,14 @@ ergänzt fehlende Einheiten bei `product_size` automatisch.
 10. Durch einen Doppelklick auf eine Tabellenzeile wird der Eintrag direkt zum Bearbeiten geladen.
 11. Ein Klick auf einen Spaltenkopf sortiert die Tabelle.
 
+12. Unten links zeigt das Fenster die aktuelle Versionsnummer an.
+
+Nach Installation der Abhängigkeiten können automatisierte Tests mit
+`pytest` ausgeführt werden:
+
+```bash
+pytest
+```
 ## KI-Unterstützung
 
 Neben dem manuellen Einpflegen kann das Programm aus beliebigem Text neue
@@ -61,10 +69,9 @@ werden. Der Key kann per Umgebungsvariable `OPENAI_API_KEY` oder nach
 Programmstart über den Button **API-Key eingeben** gesetzt werden.
 
 Im Feld **Text für KI-Vorschläge** kann beliebiger Text eingefügt werden.
-Mit **Vorschläge generieren** analysiert die KI den Inhalt und erstellt stets
-passende FAQ-Einträge. Selbst bei spärlichen Angaben versucht die KI, einen
-Vorschlag zu formulieren. Reicht der Text nicht aus, weist sie darauf hin und
-schlägt vor, welche Informationen noch fehlen.
+Mit **Vorschläge generieren** analysiert die KI den Inhalt und erstellt immer
+bis zu fünf passende FAQ-Einträge. Fehlen im Text wichtige Angaben, erfindet
+die KI eigenständig sinnvolle Fragen und lässt unklare Felder leer.
 
 Für die Suche nach ähnlichen Fragen nutzt das Programm OpenAI-Embeddings
 anstelle klassischer TF-IDF-Vektoren. Dadurch werden auch semantisch passende
