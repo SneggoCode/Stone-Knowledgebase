@@ -18,11 +18,21 @@ from tkinter import (
     Toplevel,
     Frame,
     StringVar,
+    messagebox,
 )
 from tkinter import ttk, simpledialog
+import subprocess
 import ttkbootstrap as tb
 
-VERSION = os.environ.get("PR_NUMBER", "dev")
+try:
+    VERSION = os.environ["PR_NUMBER"]
+except KeyError:
+    try:
+        VERSION = subprocess.check_output(
+            ["git", "rev-parse", "--short", "HEAD"], encoding="utf-8"
+        ).strip()
+    except Exception:
+        VERSION = "dev"
 
 CSV_FILE = "knowledgebase.csv"
 TOOLTIPS_FILE = "ui_tooltips.json"
@@ -213,6 +223,7 @@ def find_similar(df, question, client, existing_embeddings=None, top_n=3):
             results.append((sims[i], row))
     return results
 
+
 LAST_RAW_CONTENT = ""
 
 
@@ -321,7 +332,7 @@ class KBManager:
             if widget_cls is ttk.Combobox:
                 widget = widget_cls(meta.body, **opts)
             else:
-                widget = widget_cls(meta.body, width=40)
+                widget = widget_cls(meta.body, width=60)
             widget.grid(row=i, column=1, padx=5, pady=2, sticky="ew")
             Tooltip(widget, self.tooltips.get(key, ""))
             self.entries.append(widget)
@@ -334,9 +345,9 @@ class KBManager:
         for i, (lbl, widget_cls, key, opts) in enumerate(faq_fields):
             Label(faq.body, text=lbl).grid(row=i, column=0, sticky="e")
             if widget_cls is Text:
-                widget = widget_cls(faq.body, width=40, **opts)
+                widget = widget_cls(faq.body, width=60, **opts)
             else:
-                widget = widget_cls(faq.body, width=40)
+                widget = widget_cls(faq.body, width=60)
             widget.grid(row=i, column=1, padx=5, pady=2, sticky="ew")
             Tooltip(widget, self.tooltips.get(key, ""))
             self.entries.insert(1 if key == "faq_question" else 2, widget)
@@ -346,15 +357,22 @@ class KBManager:
 
         base = 2
         Label(form, text="Text für KI-Vorschläge").grid(row=base, column=0, sticky="ne")
-        self.source_text = Text(form, width=40, height=6)
+        self.source_text = Text(form, width=60, height=6)
         self.source_text.grid(row=base, column=1, padx=5, pady=2, sticky="ew")
         Tooltip(self.source_text, self.tooltips.get("source", ""))
         btn_row = base + 1
-        Button(
+        self.gen_button = tb.Button(
             form,
             text="Vorschläge generieren",
             command=self.generate_suggestions,
-        ).grid(row=btn_row, column=0, columnspan=2, pady=5)
+            bootstyle="primary",
+        )
+        self.gen_button.grid(row=btn_row, column=0, columnspan=2, pady=(5, 0))
+        Tooltip(self.gen_button, "KI analysiert den Text und erstellt Vorschläge")
+        btn_row += 1
+        self.gen_progress = ttk.Progressbar(form, mode="indeterminate")
+        self.gen_progress.grid(row=btn_row, column=0, columnspan=2)
+        self.gen_progress.grid_remove()
         btn_row += 1
         self.ai_message_var = StringVar()
         self.ai_message_label = Label(
@@ -362,47 +380,70 @@ class KBManager:
         )
         self.ai_message_label.grid(row=btn_row, column=0, columnspan=2)
         btn_row += 1
-        Button(
+        self.sim_button = tb.Button(
             form,
             text="Ähnliche Fragen anzeigen",
             command=self.check_similar,
-        ).grid(row=btn_row, column=0, pady=5)
-        Button(form, text="Speichern", command=self.save_entry).grid(
-            row=btn_row, column=1, pady=5
         )
+        self.sim_button.grid(row=btn_row, column=0, sticky="e", pady=5, padx=2)
+        Tooltip(self.sim_button, "Suche in der Tabelle nach ähnlichen Fragen")
+        self.save_button = tb.Button(
+            form,
+            text="Speichern",
+            command=self.save_entry,
+            bootstyle="success",
+        )
+        self.save_button.grid(row=btn_row, column=1, sticky="w", pady=5, padx=2)
+        Tooltip(self.save_button, "Eintrag speichern")
         btn_row += 1
-        Button(form, text="Eintrag laden", command=self.load_entry).grid(
-            row=btn_row, column=0, pady=2
+        manage = Frame(form)
+        manage.grid(row=btn_row, column=0, columnspan=2, pady=2)
+        self.load_button = tb.Button(
+            manage, text="Eintrag laden", command=self.load_entry
         )
-        Button(form, text="Eintrag löschen", command=self.delete_entry).grid(
-            row=btn_row, column=1, pady=2
+        self.load_button.pack(side="left", padx=2)
+        Tooltip(self.load_button, "Markierten Eintrag bearbeiten")
+        self.delete_button = tb.Button(
+            manage,
+            text="Eintrag löschen",
+            command=self.delete_entry,
+            bootstyle="danger",
         )
-        btn_row += 1
-        Button(form, text="Rückgängig Löschen", command=self.undo_delete).grid(
-            row=btn_row, column=0, columnspan=2, pady=2
+        self.delete_button.pack(side="left", padx=2)
+        Tooltip(self.delete_button, "Markierten Eintrag löschen")
+        self.undo_button = tb.Button(
+            manage, text="Rückgängig Löschen", command=self.undo_delete
         )
-        btn_row += 1
-        Button(form, text="Neu", command=self.clear_form).grid(
-            row=btn_row, column=0, columnspan=2, pady=2
-        )
+        self.undo_button.pack(side="left", padx=2)
+        Tooltip(self.undo_button, "Letzten Löschvorgang zurücknehmen")
+        self.new_button = tb.Button(manage, text="Neu", command=self.clear_form)
+        self.new_button.pack(side="left", padx=2)
+        Tooltip(self.new_button, "Formular leeren")
         btn_row += 1
         self.suggestion_box = Listbox(form, width=60)
         self.suggestion_box.grid(row=btn_row, column=0, columnspan=2, padx=5, pady=5)
         self.suggestion_box.bind("<Double-1>", lambda e: self.load_suggestion())
         btn_row += 1
-        Button(
+        del_btn = tb.Button(
             form,
             text="Vorschlag löschen",
             command=self.delete_suggestion,
-        ).grid(row=btn_row, column=0, columnspan=2, pady=2)
+            bootstyle="danger",
+        )
+        del_btn.grid(row=btn_row, column=0, columnspan=2, pady=2)
+        Tooltip(del_btn, "Entfernt den gewählten Vorschlag")
         btn_row += 1
         self.listbox = Listbox(form, width=60)
         self.listbox.grid(row=btn_row, column=0, columnspan=2, padx=5, pady=5)
         btn_row += 1
-        Button(form, text="API-Key eingeben", command=self.set_api_key).grid(
-            row=btn_row, column=0, columnspan=2, pady=2
+        key_btn = tb.Button(
+            form,
+            text="API-Key eingeben",
+            command=self.set_api_key,
+            bootstyle="secondary",
         )
-
+        key_btn.grid(row=btn_row, column=0, columnspan=2, pady=2)
+        Tooltip(key_btn, "OpenAI API-Key festlegen")
         filter_frame = Frame(table)
         filter_frame.grid(row=0, column=0, columnspan=2, sticky="ew", pady=(0, 4))
         Label(filter_frame, text="Filter:").pack(side="left")
@@ -410,7 +451,9 @@ class KBManager:
         self.filter_text.trace_add("write", self.on_filter_change)
         self.filter_entry = ttk.Entry(filter_frame, textvariable=self.filter_text)
         self.filter_entry.pack(side="left", fill="x", expand=True)
-        Button(filter_frame, text="Reset", command=self.reset_filter).pack(side="left")
+        reset_btn = tb.Button(filter_frame, text="Reset", command=self.reset_filter)
+        reset_btn.pack(side="left")
+        Tooltip(reset_btn, "Filter zurücksetzen")
         self.progress = ttk.Progressbar(filter_frame, mode="indeterminate", length=80)
 
         self.tree = ttk.Treeview(table, columns=COLUMNS, show="headings")
@@ -590,11 +633,29 @@ class KBManager:
         self.progress.stop()
         self.progress.pack_forget()
 
-    def show_message(self, msg, error=False):
-        """Display a status message inline."""
-        self.message_var.set(msg)
-        color = "red" if error else "green"
-        self.message_label.configure(foreground=color)
+    def show_message(self, message, error=False, success=False):
+        """Display a status message inline and optionally in a dialog.
+
+        Parameters
+        ----------
+        message : str
+            Text to display.
+        error : bool, optional
+            If True, show a messagebox with an error icon.
+        success : bool, optional
+            If True, show a messagebox with an info icon.
+        """
+
+        self.message_var.set(message)
+        if error:
+            fg = "red"
+            messagebox.showerror("Fehler", message)
+        elif success:
+            fg = "green"
+            messagebox.showinfo("Info", message)
+        else:
+            fg = "black"
+        self.message_label.configure(foreground=fg)
         self.master.after(5000, lambda: self.message_var.set(""))
 
     def on_filter_change(self, *_):
@@ -633,11 +694,12 @@ class KBManager:
                 widget.delete(0, END)
                 widget.insert(0, value)
         self.edit_index = index
-        self.show_message("Eintrag geladen.")
+        self.show_message("Eintrag geladen.", success=True)
+
     def delete_entry(self):
         """Delete the selected row from the table and CSV."""
         selection = self.tree.selection()
-        if not selection:l
+        if not selection:
             self.show_message("Bitte zuerst einen Eintrag auswählen.", error=True)
             return
         index = self.tree.index(selection[0])
@@ -646,7 +708,7 @@ class KBManager:
         save_kb(self.df)
         self.refresh_tree()
         self.edit_index = None
-        self.show_message("Eintrag gelöscht.")
+        self.show_message("Eintrag gelöscht.", success=True)
 
     def undo_delete(self):
         if not self.trash:
@@ -656,7 +718,7 @@ class KBManager:
         self.df.loc[len(self.df)] = row
         save_kb(self.df)
         self.refresh_tree()
-        self.show_message("Eintrag wiederhergestellt.")
+        self.show_message("Eintrag wiederhergestellt.", success=True)
 
     def get_entry_values(self):
         values = []
@@ -707,7 +769,13 @@ class KBManager:
             if not self.client:
                 return
         text = self.source_text.get("1.0", END).strip()
+        self.gen_progress.grid()
+        self.gen_progress.start(10)
+        self.ai_message_var.set("KI arbeitet ...")
+        self.master.update_idletasks()
         new_entries = generate_suggestions(text, self.client)
+        self.gen_progress.stop()
+        self.gen_progress.grid_remove()
         if not new_entries:
             self.ai_message_var.set("Keine geeigneten Vorschläge gefunden.")
             self.listbox.delete(0, END)
@@ -784,7 +852,7 @@ class KBManager:
                 self.df.at[row_index, col] = val
             self.edit_index = None
         save_kb(self.df)
-        self.show_message("Eintrag wurde gespeichert.")
+        self.show_message("Eintrag wurde gespeichert.", success=True)
         self.refresh_tree()
         self.highlight_row(row_index)
         self.clear_form()
