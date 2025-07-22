@@ -57,9 +57,12 @@ ergänzt fehlende Einheiten bei `product_size` automatisch.
 14. Rechtsklick-Menüs und eine Toolbar bieten schnellen Zugriff auf Laden,
     Speichern und Löschen. Ein globaler Hotkey **Strg+S** speichert den
     aktuellen Eintrag.
-15. Beim Tippen in die Filterzeile startet automatisch eine Live-Suche. Ein
+15. Die Eingabefelder sind in klappbare Bereiche **Meta-Daten** und
+    **FAQ-Inhalt** gegliedert. Das Programm verwendet überall die Schriftart
+    Aptos in Größe 12 pt.
+16. Beim Tippen in die Filterzeile startet automatisch eine Live-Suche. Ein
     Fortschrittsbalken erscheint, wenn sie länger dauert.
-16. Tooltips erklären die Eingabefelder. Die Texte liegen in
+17. Tooltips erklären die Eingabefelder. Die Texte liegen in
     `ui_tooltips.json` und lassen sich leicht anpassen.
 
 Nach Installation der Abhängigkeiten können automatisierte Tests mit
@@ -70,6 +73,7 @@ Code-Stil:
 pytest
 flake8
 ```
+
 ## KI-Unterstützung
 
 Neben dem manuellen Einpflegen kann das Programm aus beliebigem Text neue
