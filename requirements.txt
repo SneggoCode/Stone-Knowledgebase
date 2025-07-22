@@ -1,6 +1,6 @@
 pandas
 numpy
-pydantic
+pydantic>=2
 openai>=1.0.0
 language_tool_python>=2.7
 flake8

@@ -4,7 +4,7 @@ import textwrap
 import pandas as pd
 import numpy as np
 import json
-from pydantic import BaseModel, validator
+from pydantic import BaseModel, field_validator
 from openai import OpenAI
 from language_tool_python import LanguageTool
 from tkinter import (
@@ -56,17 +56,50 @@ CATEGORIES = [
     "Sonstiges",
 ]
 
+
+def normalize_category(value):
+    """Return valid category or 'Sonstiges'."""
+    val = str(value).strip().title()
+    return val if val in CATEGORIES else "Sonstiges"
+
+
 PROMPT_TEMPLATE = """
-System: Du bist Stone Knowledgebase Codex.
-Du bist ein gewissenhafter FAQ-Generator für telefonischen Kundensupport.
-Erstelle immer bis zu 5 FAQ-Einträge – auch wenn der Eingabetext keine Fragen enthält; formuliere dann selbst passende Fragen.
-Gib ausschließlich das folgende JSON-Format zurück (kein zusätzlicher Text!):
+System:
+You are “Stone Knowledgebase Codex”, ein akkurater FAQ-Generator für
+telefonischen Kundensupport eines Naturstein-Händlers. Erstelle bis zu
+5 FAQ-Einträge aus beliebigem deutschsprachigem Rohtext. Gib **nur**
+ein JSON-Objekt zurück:
 
-{"entries":[{"category":"product|payment|delivery|installation|warranty","faq_question":"string","answer_text":"string","stone_type":"string","product_form":"string","product_size":"string (inkl. Einheit)","eigenschaft":"string","anwendung":"string"}]}
+{
+ "entries":[{ "category":"Produkt|Lieferung|Konstruktion|Sonstiges",
+              "faq_question":"string",
+              "answer_text":"string",
+              "stone_type":"string",
+              "product_form":"string",
+              "product_size":"string (inkl. Einheit)",
+              "eigenschaft":"string",
+              "anwendung":"string"}]
+}
 
-User: Erstelle FAQ-Einträge aus diesem Rohtext (Deutsch):
-"""  # noqa: E501
+Kategorie-Leitfaden
+• **Produkt**  – Steinarten, Formate, Eigenschaften, Farben, Verfügbarkeit
+• **Lieferung** – Versand, Spedition, Abstellgenehmigung, Avisierung
+• **Konstruktion** – Verlegen, Versetzen, Fundament, Pflegeanleitung
+• **Sonstiges**  – alles andere (z.\u202fB. Garantie, Zahlung, Support)
 
+Priorisiere das Hauptthema, wenn mehrere vorkommen.
+**Nur die oben genannten Werte sind gültig.** Alle anderen musst du
+intern auf „Sonstiges“ setzen, damit das JSON gültig bleibt.
+
+Beispiele:
+{"category":"Produkt","faq_question":"Welche Körnung hat Splitt 8/16?","answer_text":"…"}
+{"category":"Lieferung","faq_question":"Was passiert, wenn ich nicht zuhause bin?","answer_text":"…"}
+{"category":"Konstruktion","faq_question":"Wie verfuge ich Kalksteinplatten?","answer_text":"…"}
+{"category":"Sonstiges","faq_question":"Wie erreiche ich den Kundenservice?","answer_text":"…"}
+
+USER:
+Erstelle FAQ-Einträge aus diesem Rohtext (Deutsch):
+"""
 FALLBACK_HINT = "Bitte erstelle passende FAQ-Einträge, selbst wenn der Text kaum Informationen enthält.\n"
 
 
@@ -145,17 +178,17 @@ class FAQEntry(BaseModel):
     eigenschaft: str = ""
     anwendung: str = ""
 
-    @validator("category")
+    @field_validator("category", mode="before")
+    @classmethod
     def check_category(cls, v):
-        if v not in CATEGORIES:
-            raise ValueError("Ungültige Kategorie")
-        return v
+        return normalize_category(v)
 
-    @validator("product_size")
+    @field_validator("product_size", mode="before")
+    @classmethod
     def ensure_unit(cls, v):
-        if v and not any(unit in v for unit in ["mm", "cm", "m"]):
-            if v.strip().isdigit():
-                return v + " mm"
+        if v and not any(unit in str(v) for unit in ["mm", "cm", "m"]):
+            if str(v).strip().isdigit():
+                return f"{v} mm"
         return v
 
 
@@ -206,11 +239,13 @@ def find_similar(df, question, client, existing_embeddings=None, top_n=3):
 
 
 LAST_RAW_CONTENT = ""
+CATEGORY_MAPPED = False
 
 
 def generate_suggestions(text, client):
     """Return FAQ suggestions from OpenAI."""
-    global LAST_RAW_CONTENT
+    global LAST_RAW_CONTENT, CATEGORY_MAPPED
+    CATEGORY_MAPPED = False
     prompts = [PROMPT_TEMPLATE + text, PROMPT_TEMPLATE + FALLBACK_HINT + text]
     LAST_RAW_CONTENT = ""
     for prompt in prompts:
@@ -234,8 +269,13 @@ def generate_suggestions(text, client):
         entries = data.get("entries") if isinstance(data, dict) else []
         results = []
         for e in entries:
+            orig = e.get("category", "")
+            mapped = normalize_category(orig)
+            if mapped != str(orig).strip().title():
+                CATEGORY_MAPPED = True
+            e["category"] = mapped
             try:
-                results.append(FAQEntry(**e).dict())
+                results.append(FAQEntry(**e).model_dump())
             except Exception as exc:
                 print(f"Invalid entry skipped: {e} ({exc})", file=sys.stderr)
         if results:
@@ -763,6 +803,7 @@ class KBManager:
 
     def generate_suggestions(self):
         """Generate suggestions via OpenAI and update the list."""
+        global CATEGORY_MAPPED
         if not self.client:
             self.set_api_key()
             if not self.client:
@@ -777,6 +818,11 @@ class KBManager:
             self.ai_message_var.set("Keine geeigneten Vorschläge gefunden.")
             return
         self.ai_message_var.set("")
+        if CATEGORY_MAPPED:
+            self.show_message(
+                "Unbekannte Kategorie → Sonstiges übernommen", info=True
+            )
+            CATEGORY_MAPPED = False
         self.suggestions.extend(new_entries)
         self.refresh_suggestion_box()
 
@@ -789,7 +835,7 @@ class KBManager:
         suggestion = self.suggestions[index]
         self.current_suggestion_index = index
         try:
-            data = FAQEntry(**suggestion).dict()
+            data = FAQEntry(**suggestion).model_dump()
         except Exception:
             data = suggestion
         for widget, col in zip(self.entries, COLUMNS):
@@ -847,7 +893,7 @@ class KBManager:
             if k not in {"faq_question", "answer_text"} and not data[k]:
                 data[k] = "Keine Angabe"
         try:
-            new_row = FAQEntry(**data).dict()
+            new_row = FAQEntry(**data).model_dump()
         except Exception as exc:
             self.show_message(f"Ungültige Eingaben: {exc}", error=True)
             return
