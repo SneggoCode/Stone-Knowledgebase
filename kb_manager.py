@@ -318,6 +318,7 @@ class KBManager:
             return None
         return entry.dict()
 
+
     def set_api_key(self):
         """Prompt the user for an OpenAI API key."""
         key = simpledialog.askstring('API-Key', 'OpenAI API-Key eingeben:', show='*')

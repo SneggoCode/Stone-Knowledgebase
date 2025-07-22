@@ -1,4 +1,3 @@
 pandas
 numpy
-pydantic
 openai>=1.0.0
