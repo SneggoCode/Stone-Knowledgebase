@@ -444,7 +444,6 @@ class KBManager:
         )
         key_btn.grid(row=btn_row, column=0, columnspan=2, pady=2)
         Tooltip(key_btn, "OpenAI API-Key festlegen")
-
         filter_frame = Frame(table)
         filter_frame.grid(row=0, column=0, columnspan=2, sticky="ew", pady=(0, 4))
         Label(filter_frame, text="Filter:").pack(side="left")
