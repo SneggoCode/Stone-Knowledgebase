@@ -21,7 +21,7 @@ def setup_module(module):
     df = load_kb()
     if df.empty:
         df.loc[0] = {
-            'category': 'product',
+            'category': 'Produkt',
             'faq_question': 'Welche Steine sind hart?',
             'answer_text': 'Alle Granitsteine sind hart.',
             'stone_type': 'Granit',
@@ -48,5 +48,5 @@ def test_context_menu_entries():
     root = Window(themename="flatly")
     app = KBManager(root)
     labels = [app.row_menu.entrycget(i, 'label') for i in range(app.row_menu.index('end') + 1)]
-    assert {'Löschen', 'Markieren', 'Kopieren'} <= set(labels)
+    assert {'Löschen', 'Kopieren'} <= set(labels)
     root.destroy()

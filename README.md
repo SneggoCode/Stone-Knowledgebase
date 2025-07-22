@@ -15,8 +15,8 @@ product_form, product_size, eigenschaft, anwendung
 `product_size` sollte immer die passende Einheit enthalten, beispielsweise
 `8/16 mm` oder `30 cm`.
 
-`category` unterscheidet z.B. `product`, `payment`, `delivery`,
-`installation` oder `warranty`. Die übrigen Felder können leer bleiben,
+`category` unterscheidet `Produkt`, `Lieferung`, `Konstruktion` und
+`Sonstiges`. Die übrigen Felder können leer bleiben,
 wenn sie nicht zum jeweiligen Eintrag passen.
 Beim Speichern überprüft eine kleine Pydantic-Datenklasse die Eingaben und
 ergänzt fehlende Einheiten bei `product_size` automatisch.

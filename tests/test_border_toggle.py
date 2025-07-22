@@ -1,7 +1,7 @@
 import os
 import sys
-import pandas as pd
 import tkinter as tk
+import pandas as pd
 import pytest
 from ttkbootstrap import Window
 
@@ -20,30 +20,32 @@ def display_available():
 
 
 @pytest.mark.skipif(not display_available(), reason="requires display")
-def test_suggestion_save_flow(tmp_path):
-    csv_path = tmp_path / "kb.csv"
+def test_border_toggle(monkeypatch, tmp_path):
+    monkeypatch.setattr('language_tool_python.LanguageTool', lambda *_: None)
+    csv_path = tmp_path / 'kb.csv'
     df = pd.DataFrame(columns=COLUMNS)
     save_kb(df, csv_path)
-    root = Window(themename="flatly")
+    root = Window(themename='flatly')
     app = KBManager(root)
     app.csv_file = str(csv_path)
     app.df = df
     app.refresh_tree()
 
-    suggestion = {
-        "category": "Produkt",
-        "faq_question": "Q1",
-        "answer_text": "A1",
-        "stone_type": "",
-        "product_form": "",
-        "product_size": "",
-        "eigenschaft": "",
-        "anwendung": "",
+    sug = {
+        'category': 'Produkt',
+        'faq_question': 'Q',
+        'answer_text': 'A',
+        'stone_type': '',
+        'product_form': '',
+        'product_size': '',
+        'eigenschaft': '',
+        'anwendung': '',
     }
-    app.suggestions = [suggestion]
+    app.suggestions = [sug]
     app.refresh_suggestion_box()
     app.suggestion_box.selection_set(0)
     app.load_suggestion()
+    assert int(app.form.cget('highlightthickness')) == 2
     app.save_entry()
-    assert not app.suggestions
+    assert int(app.form.cget('highlightthickness')) == 0
     root.destroy()

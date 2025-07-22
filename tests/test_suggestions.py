@@ -41,7 +41,7 @@ def test_generate_retries():
         {
             "entries": [
                 {
-                    "category": "product",
+                    "category": "Produkt",
                     "faq_question": "Q",
                     "answer_text": "A",
                     "stone_type": "",

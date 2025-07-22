@@ -6,11 +6,11 @@ import numpy as np
 import json
 from pydantic import BaseModel, validator
 from openai import OpenAI
+from language_tool_python import LanguageTool
 from tkinter import (
     Label,
     Entry,
     Text,
-    Button,
     Listbox,
     Scrollbar,
     END,
@@ -18,12 +18,12 @@ from tkinter import (
     Toplevel,
     Frame,
     StringVar,
-    messagebox,
     filedialog,
 )
 from tkinter import ttk, simpledialog
 import subprocess
 import ttkbootstrap as tb
+from ttkbootstrap.toast import ToastNotification
 
 try:
     VERSION = os.environ["PR_NUMBER"]
@@ -47,6 +47,13 @@ COLUMNS = [
     "product_size",
     "eigenschaft",
     "anwendung",
+]
+
+CATEGORIES = [
+    "Produkt",
+    "Lieferung",
+    "Konstruktion",
+    "Sonstiges",
 ]
 
 PROMPT_TEMPLATE = """
@@ -137,6 +144,12 @@ class FAQEntry(BaseModel):
     product_size: str = ""
     eigenschaft: str = ""
     anwendung: str = ""
+
+    @validator("category")
+    def check_category(cls, v):
+        if v not in CATEGORIES:
+            raise ValueError("Ungültige Kategorie")
+        return v
 
     @validator("product_size")
     def ensure_unit(cls, v):
@@ -237,23 +250,18 @@ class KBManager:
         master.title("Stone Knowledgebase Manager")
         master.option_add("*Font", "Aptos 12")
         self.style = tb.Style("flatly")
-        self.dark = False
         self.tooltips = load_tooltips()
         self.csv_file = get_csv_path()
         self.df = load_kb(self.csv_file).reset_index(drop=True)
         if not os.path.exists(self.csv_file):
             save_kb(self.df, self.csv_file)
-        try:
-            self.csv_mtime = os.path.getmtime(self.csv_file)
-        except OSError:
-            self.csv_mtime = 0
+        self.lt = LanguageTool("de-DE")
         self.api_key = os.environ.get("OPENAI_API_KEY", "")
         self.client = OpenAI(api_key=self.api_key) if self.api_key else None
         self.suggestions = []
         self.current_suggestion_index = None
         self.embeddings = []
         self.trash = []
-        self.marked = set()
         self.search_after_id = None
         if self.client and not self.df.empty:
             self.embeddings = [
@@ -268,8 +276,6 @@ class KBManager:
         self.form.grid(row=1, column=0, sticky="nsew", padx=5, pady=5)
         table.grid(row=1, column=1, sticky="nsew", padx=5, pady=5)
 
-        Button(toolbar, text="Dark-Mode", command=self.toggle_theme).pack(side="right")
-
         master.columnconfigure(0, weight=1)
         master.columnconfigure(1, weight=2)
         master.rowconfigure(1, weight=1)
@@ -278,13 +284,7 @@ class KBManager:
         self.form.columnconfigure(1, weight=1)
 
         self.entries = []
-        self.categories = [
-            "product",
-            "payment",
-            "delivery",
-            "installation",
-            "warranty",
-        ]
+        self.categories = CATEGORIES
 
         fields = [
             (
@@ -293,7 +293,7 @@ class KBManager:
                 "category",
                 {"values": self.categories, "state": "readonly", "width": 37},
             ),
-            ("Frage", Entry, "faq_question", {}),
+            ("Frage", Text, "faq_question", {"height": 2}),
             ("Antwort", Text, "answer_text", {"height": 4}),
             ("Steinart", Entry, "stone_type", {}),
             ("Produktform", Entry, "product_form", {}),
@@ -306,6 +306,10 @@ class KBManager:
             Label(self.form, text=lbl).grid(row=i, column=0, sticky="e", pady=2)
             if widget_cls is Text:
                 widget = widget_cls(self.form, width=60, **opts)
+                if key in {"faq_question", "answer_text"}:
+                    widget.bind(
+                        "<KeyRelease>", lambda e, w=widget: self.check_spelling(w)
+                    )
             elif widget_cls is ttk.Combobox:
                 widget = widget_cls(self.form, **opts)
             else:
@@ -328,17 +332,13 @@ class KBManager:
             command=self.generate_suggestions,
             bootstyle="primary",
         )
-        self.gen_button.grid(row=btn_row, column=0, columnspan=2, pady=(5, 0))
+        self.gen_button.grid(row=btn_row, column=0, pady=(5, 0), sticky="w")
         Tooltip(self.gen_button, "KI analysiert den Text und erstellt Vorschläge")
-        btn_row += 1
-        self.gen_progress = ttk.Progressbar(self.form, mode="indeterminate")
-        self.gen_progress.place_forget()
-        btn_row += 1
         self.ai_message_var = StringVar()
         self.ai_message_label = Label(
             self.form, textvariable=self.ai_message_var, foreground="red"
         )
-        self.ai_message_label.grid(row=btn_row, column=0, columnspan=2)
+        self.ai_message_label.grid(row=btn_row, column=1, sticky="w")
         btn_row += 1
         self.sim_button = tb.Button(
             self.form,
@@ -391,6 +391,7 @@ class KBManager:
         )
         self.form.rowconfigure(btn_row, weight=1)
         self.suggestion_box.bind("<Double-1>", lambda e: self.load_suggestion())
+        self.suggestion_box.bind("<ButtonRelease-1>", lambda e: self.load_suggestion())
         btn_row += 1
         del_btn = tb.Button(
             self.form,
@@ -435,12 +436,10 @@ class KBManager:
         self.tree_scroll.grid(row=1, column=1, sticky="ns")
         self.tree.bind("<<TreeviewSelect>>", lambda e: None)
         self.tree.bind("<Double-1>", lambda e: self.load_entry())
-        self.tree.tag_configure("marked", background="#ffd966")
         self.tree.tag_configure("match", background="#ffff99")
         self.row_menu = Menu(self.tree, tearoff=0)
         self.row_menu.add_command(label="Kopieren", command=self.copy_row)
         self.row_menu.add_command(label="Löschen", command=self.delete_entry)
-        self.row_menu.add_command(label="Markieren", command=self.mark_entry)
         self.empty_menu = Menu(self.tree, tearoff=0)
         self.empty_menu.add_command(
             label="Neuen Eintrag einfügen", command=self.clear_form
@@ -448,8 +447,6 @@ class KBManager:
         self.tree.bind("<Button-3>", self.show_context_menu)
 
         self.master.bind("<Escape>", lambda e: self.on_escape())
-
-        self.master.after(5000, self.check_csv_update)
 
         self.refresh_tree()
         self.edit_index = None
@@ -550,23 +547,6 @@ class KBManager:
         else:
             self.empty_menu.tk_popup(event.x_root, event.y_root)
 
-    def mark_entry(self):
-        sel = self.tree.selection()
-        if not sel:
-            return
-        idx = self.tree.index(sel[0])
-        if idx in self.marked:
-            self.marked.remove(idx)
-            self.tree.item(
-                sel[0],
-                tags=tuple(t for t in self.tree.item(sel[0], "tags") if t != "marked"),
-            )
-        else:
-            self.marked.add(idx)
-            tags = set(self.tree.item(sel[0], "tags"))
-            tags.add("marked")
-            self.tree.item(sel[0], tags=tuple(tags))
-
     def copy_row(self):
         sel = self.tree.selection()
         if not sel:
@@ -585,29 +565,78 @@ class KBManager:
         self.progress.stop()
         self.progress.pack_forget()
 
-    def show_message(self, message, error=False, success=False):
-        """Display a status message inline and optionally in a dialog.
+    def disable_inputs(self):
+        widgets = [
+            self.source_text,
+            self.sim_button,
+            self.save_button,
+            self.load_button,
+            self.delete_button,
+            self.undo_button,
+            self.new_button,
+        ]
+        for widget in self.entries + widgets:
+            try:
+                widget.configure(state="disabled")
+            except Exception:
+                pass
+        self.gen_button.configure(state="disabled")
 
-        Parameters
-        ----------
-        message : str
-            Text to display.
-        error : bool, optional
-            If True, show a messagebox with an error icon.
-        success : bool, optional
-            If True, show a messagebox with an info icon.
-        """
+    def enable_inputs(self):
+        widgets = [
+            self.source_text,
+            self.sim_button,
+            self.save_button,
+            self.load_button,
+            self.delete_button,
+            self.undo_button,
+            self.new_button,
+        ]
+        for widget in self.entries + widgets:
+            try:
+                widget.configure(state="normal")
+            except Exception:
+                pass
+        self.gen_button.configure(state="normal")
+
+    def start_ai_animation(self):
+        self.ai_running = True
+        self.ai_dots = "..."
+
+        def animate():
+            if not self.ai_running:
+                return
+            self.ai_message_var.set(f"KI arbeitet {self.ai_dots}")
+            self.ai_dots = self.ai_dots[:-1] if len(self.ai_dots) > 1 else "..."
+            self.master.after(500, animate)
+
+        animate()
+
+    def stop_ai_animation(self):
+        self.ai_running = False
+        self.ai_message_var.set("")
+
+    def show_message(self, message, error=False, success=False, info=False):
+        """Display a status message and toast."""
 
         self.message_var.set(message)
         if error:
-            fg = "red"
-            messagebox.showerror("Fehler", message)
+            color = "#dc3545"
         elif success:
-            fg = "green"
-            messagebox.showinfo("Info", message)
+            color = "#28a745"
+        elif info:
+            color = "#17a2b8"
         else:
-            fg = "black"
-        self.message_label.configure(foreground=fg)
+            color = "black"
+        self.message_label.configure(foreground=color)
+        if error or success or info:
+            ToastNotification(
+                title="",
+                message=message,
+                duration=4000,
+                bootstyle="secondary",
+                position=(0, 0, "se"),
+            ).show_toast()
         self.master.after(5000, lambda: self.message_var.set(""))
 
     def highlight_form(self):
@@ -619,18 +648,6 @@ class KBManager:
     def on_escape(self, _=None):
         self.clear_highlight()
         self.filter_text.set("")
-
-    def check_csv_update(self):
-        try:
-            mtime = os.path.getmtime(self.csv_file)
-        except OSError:
-            return
-        if mtime != self.csv_mtime:
-            self.csv_mtime = mtime
-            self.df = load_kb(self.csv_file).reset_index(drop=True)
-            self.refresh_tree()
-            self.show_message("CSV erneut geladen.", success=True)
-        self.master.after(5000, self.check_csv_update)
 
     def on_filter_change(self, *_):
         if self.search_after_id:
@@ -670,7 +687,6 @@ class KBManager:
                 widget.insert(0, value)
         self.edit_index = index
         self.highlight_form()
-        self.show_message("Eintrag geladen.", success=True)
 
     def delete_entry(self):
         """Delete the selected row from the table and CSV."""
@@ -695,6 +711,19 @@ class KBManager:
         save_kb(self.df, self.csv_file)
         self.refresh_tree()
         self.show_message("Eintrag wiederhergestellt.", success=True)
+
+    def check_spelling(self, widget):
+        text = widget.get("1.0", END)
+        widget.tag_delete("misspell")
+        widget.tag_configure("misspell", underline=True, foreground="#d9534f")
+        try:
+            matches = self.lt.check(text)
+        except Exception:
+            matches = []
+        for m in matches:
+            start = f"1.0+{m.offset}c"
+            end = f"1.0+{m.offset + m.errorLength}c"
+            widget.tag_add("misspell", start, end)
 
     def get_entry_values(self):
         values = []
@@ -739,13 +768,11 @@ class KBManager:
             if not self.client:
                 return
         text = self.source_text.get("1.0", END).strip()
-        self.gen_progress.place(in_=self.gen_button, relx=0, rely=0, relwidth=1)
-        self.gen_progress.start(10)
-        self.ai_message_var.set("KI arbeitet ...")
-        self.master.update_idletasks()
+        self.disable_inputs()
+        self.start_ai_animation()
         new_entries = generate_suggestions(text, self.client)
-        self.gen_progress.stop()
-        self.gen_progress.place_forget()
+        self.stop_ai_animation()
+        self.enable_inputs()
         if not new_entries:
             self.ai_message_var.set("Keine geeigneten Vorschläge gefunden.")
             return
@@ -807,6 +834,15 @@ class KBManager:
         if not data["faq_question"] or not data["answer_text"]:
             self.show_message("Antwort darf nicht leer sein", error=True)
             return
+        if data["category"] not in CATEGORIES:
+            self.show_message("Ungültige Kategorie", error=True)
+            return
+        if (
+            self.entries[1].tag_ranges("misspell")
+            or self.entries[2].tag_ranges("misspell")
+        ):
+            self.show_message("Rechtschreibfehler vorhanden", error=True)
+            return
         for k in COLUMNS:
             if k not in {"faq_question", "answer_text"} and not data[k]:
                 data[k] = "Keine Angabe"
@@ -833,6 +869,7 @@ class KBManager:
             self.suggestions.pop(self.current_suggestion_index)
             self.refresh_suggestion_box()
             self.current_suggestion_index = None
+
 
 if __name__ == "__main__":
     root = tb.Window(themename="flatly")

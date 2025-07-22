@@ -37,7 +37,7 @@ def test_generate_length_and_schema():
     data = {
         "entries": [
             {
-                "category": "product",
+                "category": "Produkt",
                 "faq_question": "Welche Steine sind hart?",
                 "answer_text": "Alle Granitsteine sind sehr hart.",
                 "stone_type": "Granit",
