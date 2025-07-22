@@ -100,7 +100,6 @@ Beispiele:
 USER:
 Erstelle FAQ-Einträge aus diesem Rohtext (Deutsch):
 """
-
 FALLBACK_HINT = "Bitte erstelle passende FAQ-Einträge, selbst wenn der Text kaum Informationen enthält.\n"
 
 
