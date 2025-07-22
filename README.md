@@ -45,6 +45,8 @@ wenn sie nicht zum jeweiligen Eintrag passen.
    Formular übernommen werden.
 8. Mit **Eintrag löschen** wird die ausgewählte Zeile dauerhaft entfernt.
 9. **Neu** leert das Formular ohne zu speichern.
+10. Durch einen Doppelklick auf eine Tabellenzeile wird der Eintrag direkt zum Bearbeiten geladen.
+11. Ein Klick auf einen Spaltenkopf sortiert die Tabelle.
 
 ## KI-Unterstützung
 
@@ -55,9 +57,9 @@ Programmstart über den Button **API-Key eingeben** gesetzt werden.
 
 Im Feld **Text für KI-Vorschläge** kann beliebiger Text eingefügt werden.
 Mit **Vorschläge generieren** analysiert die KI den Inhalt und erstellt stets
-passende FAQ-Einträge. Selbst bei unvollständigen Texten wird mindestens ein
-Vorschlag erzeugt. Felder ohne offensichtliche Informationen werden einfach
-leer gelassen oder mit einer plausiblen Kategorie versehen.
+passende FAQ-Einträge. Selbst bei spärlichen Angaben versucht die KI, einen
+Vorschlag zu formulieren. Reicht der Text nicht aus, weist sie darauf hin und
+schlägt vor, welche Informationen noch fehlen.
 
 Alle generierten Vorschläge sammeln sich in einer Liste unterhalb des
 Formulars. Ein Doppelklick übernimmt einen Vorschlag in die Eingabefelder und

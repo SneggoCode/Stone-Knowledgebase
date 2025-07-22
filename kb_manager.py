@@ -127,13 +127,15 @@ class KBManager:
         Button(form, text='API-Key eingeben', command=self.set_api_key).grid(row=base+8, column=0, columnspan=2, pady=2)
 
         self.tree = ttk.Treeview(table, columns=COLUMNS, show='headings')
+        self.sort_state = {c: False for c in COLUMNS}
         for col in COLUMNS:
-            self.tree.heading(col, text=col)
+            self.tree.heading(col, text=col, command=lambda c=col: self.sort_by_column(c))
             self.tree.column(col, width=120, anchor='w')
         self.tree_scroll = Scrollbar(table, orient='vertical', command=self.tree.yview)
         self.tree.configure(yscrollcommand=self.tree_scroll.set)
         self.tree.grid(row=0, column=0, sticky='nsew')
         self.tree_scroll.grid(row=0, column=1, sticky='ns')
+        self.tree.bind('<Double-1>', lambda e: self.load_entry())
 
         self.refresh_tree()
         self.edit_index = None
@@ -144,6 +146,12 @@ class KBManager:
             self.tree.delete(item)
         for _, row in self.df.iterrows():
             self.tree.insert('', 'end', values=row.tolist())
+
+    def sort_by_column(self, col):
+        """Sort the table by the given column."""
+        self.sort_state[col] = not self.sort_state[col]
+        self.df.sort_values(col, ascending=not self.sort_state[col], inplace=True, ignore_index=True)
+        self.refresh_tree()
 
     def refresh_suggestion_box(self):
         """Update the listbox with current suggestions."""
@@ -237,6 +245,24 @@ class KBManager:
             self.api_key = key
             self.client = OpenAI(api_key=key)
 
+    def suggest_improvement(self, text):
+        """Ask OpenAI for improvement hints for the given text."""
+        if not self.client:
+            return ''
+        prompt = (
+            'Der folgende Text reicht nicht aus, um vollst\u00e4ndige FAQ-Vorschl\u00e4ge zu erzeugen. '
+            'Gib in einem Satz an, welche zus\u00e4tzlichen Informationen sinnvoll w\u00e4ren:'
+        )
+        try:
+            resp = self.client.chat.completions.create(
+                model='gpt-4o',
+                messages=[{'role': 'user', 'content': prompt + '\n' + text}],
+                max_tokens=60,
+            )
+            return resp.choices[0].message.content.strip()
+        except Exception:
+            return ''
+
     def generate_suggestions(self):
         """Use OpenAI to propose new FAQ entries from the source text."""
         if not self.client:
@@ -244,6 +270,13 @@ class KBManager:
             if not self.client:
                 return
         text = self.source_text.get('1.0', END).strip()
+        if len(text.split()) < 3:
+            hint = self.suggest_improvement(text)
+            if hint:
+                messagebox.showinfo('Hinweis', hint)
+            else:
+                messagebox.showinfo('Hinweis', 'Bitte mehr Kontext eingeben, um Vorschl\u00e4ge zu erhalten.')
+            return
         prompt = (
             'Erstelle aus dem folgenden Text bis zu fünf FAQ-Einträge. '
             'Gib immer ein JSON-Objekt {"entries": [...]} zurück. '
