@@ -54,12 +54,10 @@ ergänzt fehlende Einheiten bei `product_size` automatisch.
 11. Ein Klick auf einen Spaltenkopf sortiert die Tabelle.
 12. Unten links zeigt das Fenster die aktuelle Versionsnummer an.
 13. Ein Dark-Mode-Button wechselt zwischen hellem und dunklem Stil.
-14. Rechtsklick-Menüs und eine Toolbar bieten schnellen Zugriff auf Laden,
-    Speichern und Löschen. Ein globaler Hotkey **Strg+S** speichert den
-    aktuellen Eintrag.
-15. Die Eingabefelder sind in klappbare Bereiche **Meta-Daten** und
-    **FAQ-Inhalt** gegliedert. Das Programm verwendet überall die Schriftart
-    Aptos in Größe 12 pt.
+14. Rechtsklick-Menüs bieten schnellen Zugriff auf Laden, Speichern und
+    Löschen. Ein globaler Hotkey **Strg+S** speichert den aktuellen Eintrag.
+15. Alle Felder sind dauerhaft sichtbar in der Reihenfolge der CSV-Spalten.
+    Das Programm verwendet überall die Schriftart Aptos in Größe 12 pt.
 16. Beim Tippen in die Filterzeile startet automatisch eine Live-Suche. Ein
     Fortschrittsbalken erscheint, wenn sie länger dauert.
 17. Tooltips erklären die Eingabefelder. Die Texte liegen in
