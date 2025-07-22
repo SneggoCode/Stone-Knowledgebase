@@ -718,7 +718,7 @@ class KBManager:
         if not new_entries:
             self.ai_message_var.set("Keine geeigneten Vorschläge gefunden.")
             return
-        self.ai_message_var.set("")
+        self.ai_message_var.set("")n
         self.suggestions.extend(new_entries)
         self.refresh_suggestion_box()
 
@@ -795,7 +795,6 @@ class KBManager:
             self.suggestions.pop(self.current_suggestion_index)
             self.refresh_suggestion_box()
             self.current_suggestion_index = None
-
 
 if __name__ == "__main__":
     root = tb.Window(themename="flatly")
