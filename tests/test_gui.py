@@ -48,5 +48,5 @@ def test_context_menu_entries():
     root = Window(themename="flatly")
     app = KBManager(root)
     labels = [app.row_menu.entrycget(i, 'label') for i in range(app.row_menu.index('end') + 1)]
-    assert {'Löschen', 'Deaktivieren', 'Markieren', 'Kopieren'} <= set(labels)
+    assert {'Löschen', 'Markieren', 'Kopieren'} <= set(labels)
     root.destroy()

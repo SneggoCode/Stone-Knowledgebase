@@ -19,6 +19,7 @@ from tkinter import (
     Frame,
     StringVar,
     messagebox,
+    filedialog,
 )
 from tkinter import ttk, simpledialog
 import subprocess
@@ -35,6 +36,7 @@ except KeyError:
         VERSION = "dev"
 
 CSV_FILE = "knowledgebase.csv"
+CONFIG_FILE = "config.json"
 TOOLTIPS_FILE = "ui_tooltips.json"
 COLUMNS = [
     "category",
@@ -59,6 +61,28 @@ User: Erstelle FAQ-Einträge aus diesem Rohtext (Deutsch):
 """  # noqa: E501
 
 FALLBACK_HINT = "Bitte erstelle passende FAQ-Einträge, selbst wenn der Text kaum Informationen enthält.\n"
+
+
+def get_csv_path():
+    """Return CSV path from config or ask the user."""
+    if os.path.exists(CONFIG_FILE):
+        try:
+            with open(CONFIG_FILE, "r", encoding="utf-8") as f:
+                data = json.load(f)
+                path = data.get("csv_path")
+                if path:
+                    return path
+        except Exception:
+            pass
+    path = filedialog.askopenfilename(filetypes=[("CSV", "*.csv")])
+    if not path:
+        path = CSV_FILE
+    try:
+        with open(CONFIG_FILE, "w", encoding="utf-8") as f:
+            json.dump({"csv_path": path}, f)
+    except Exception:
+        pass
+    return path
 
 
 def load_tooltips():
@@ -122,19 +146,19 @@ class FAQEntry(BaseModel):
         return v
 
 
-def load_kb():
+def load_kb(path=CSV_FILE):
     """Load the knowledge base from CSV or return an empty DataFrame."""
-    if os.path.exists(CSV_FILE):
-        df = pd.read_csv(CSV_FILE)
+    if os.path.exists(path):
+        df = pd.read_csv(path)
         df = df.reindex(columns=COLUMNS)
         df.fillna("", inplace=True)
         return df
     return pd.DataFrame(columns=COLUMNS)
 
 
-def save_kb(df):
+def save_kb(df, path=CSV_FILE):
     """Persist the DataFrame back to the CSV file."""
-    df.reindex(columns=COLUMNS).to_csv(CSV_FILE, index=False)
+    df.reindex(columns=COLUMNS).to_csv(path, index=False)
 
 
 def cosine(a, b):
@@ -215,14 +239,20 @@ class KBManager:
         self.style = tb.Style("flatly")
         self.dark = False
         self.tooltips = load_tooltips()
-        self.df = load_kb().reset_index(drop=True)
+        self.csv_file = get_csv_path()
+        self.df = load_kb(self.csv_file).reset_index(drop=True)
+        if not os.path.exists(self.csv_file):
+            save_kb(self.df, self.csv_file)
+        try:
+            self.csv_mtime = os.path.getmtime(self.csv_file)
+        except OSError:
+            self.csv_mtime = 0
         self.api_key = os.environ.get("OPENAI_API_KEY", "")
         self.client = OpenAI(api_key=self.api_key) if self.api_key else None
         self.suggestions = []
         self.current_suggestion_index = None
         self.embeddings = []
         self.trash = []
-        self.deactivated = set()
         self.marked = set()
         self.search_after_id = None
         if self.client and not self.df.empty:
@@ -232,10 +262,10 @@ class KBManager:
 
         # frames for layout
         toolbar = Frame(master)
-        form = Frame(master)
+        self.form = Frame(master, highlightthickness=0)
         table = Frame(master)
         toolbar.grid(row=0, column=0, columnspan=2, sticky="ew")
-        form.grid(row=1, column=0, sticky="nsew", padx=5, pady=5)
+        self.form.grid(row=1, column=0, sticky="nsew", padx=5, pady=5)
         table.grid(row=1, column=1, sticky="nsew", padx=5, pady=5)
 
         Button(toolbar, text="Dark-Mode", command=self.toggle_theme).pack(side="right")
@@ -245,7 +275,7 @@ class KBManager:
         master.rowconfigure(1, weight=1)
         table.columnconfigure(0, weight=1)
         table.rowconfigure(1, weight=1)
-        form.columnconfigure(1, weight=1)
+        self.form.columnconfigure(1, weight=1)
 
         self.entries = []
         self.categories = [
@@ -273,27 +303,27 @@ class KBManager:
         ]
 
         for i, (lbl, widget_cls, key, opts) in enumerate(fields):
-            Label(form, text=lbl).grid(row=i, column=0, sticky="e", pady=2)
+            Label(self.form, text=lbl).grid(row=i, column=0, sticky="e", pady=2)
             if widget_cls is Text:
-                widget = widget_cls(form, width=60, **opts)
+                widget = widget_cls(self.form, width=60, **opts)
             elif widget_cls is ttk.Combobox:
-                widget = widget_cls(form, **opts)
+                widget = widget_cls(self.form, **opts)
             else:
-                widget = widget_cls(form, width=60)
+                widget = widget_cls(self.form, width=60)
             widget.grid(row=i, column=1, padx=5, pady=2, sticky="ew")
             Tooltip(widget, self.tooltips.get(key, ""))
             self.entries.append(widget)
 
-        form.columnconfigure(1, weight=1)
+        self.form.columnconfigure(1, weight=1)
 
         base = len(fields)
-        Label(form, text="Text für KI-Vorschläge").grid(row=base, column=0, sticky="ne")
-        self.source_text = Text(form, width=60, height=6)
+        Label(self.form, text="Text für KI-Vorschläge").grid(row=base, column=0, sticky="ne")
+        self.source_text = Text(self.form, width=60, height=6)
         self.source_text.grid(row=base, column=1, padx=5, pady=2, sticky="ew")
         Tooltip(self.source_text, self.tooltips.get("source", ""))
         btn_row = base + 1
         self.gen_button = tb.Button(
-            form,
+            self.form,
             text="🧠 Vorschläge generieren",
             command=self.generate_suggestions,
             bootstyle="primary",
@@ -301,25 +331,24 @@ class KBManager:
         self.gen_button.grid(row=btn_row, column=0, columnspan=2, pady=(5, 0))
         Tooltip(self.gen_button, "KI analysiert den Text und erstellt Vorschläge")
         btn_row += 1
-        self.gen_progress = ttk.Progressbar(form, mode="indeterminate")
-        self.gen_progress.grid(row=btn_row, column=0, columnspan=2)
-        self.gen_progress.grid_remove()
+        self.gen_progress = ttk.Progressbar(self.form, mode="indeterminate")
+        self.gen_progress.place_forget()
         btn_row += 1
         self.ai_message_var = StringVar()
         self.ai_message_label = Label(
-            form, textvariable=self.ai_message_var, foreground="red"
+            self.form, textvariable=self.ai_message_var, foreground="red"
         )
         self.ai_message_label.grid(row=btn_row, column=0, columnspan=2)
         btn_row += 1
         self.sim_button = tb.Button(
-            form,
+            self.form,
             text="🔍 Ähnliche Fragen",
             command=self.check_similar,
         )
         self.sim_button.grid(row=btn_row, column=0, sticky="e", pady=5, padx=2)
         Tooltip(self.sim_button, "Suche in der Tabelle nach ähnlichen Fragen")
         self.save_button = tb.Button(
-            form,
+            self.form,
             text="💾 Speichern",
             command=self.save_entry,
             bootstyle="success",
@@ -327,7 +356,7 @@ class KBManager:
         self.save_button.grid(row=btn_row, column=1, sticky="w", pady=5, padx=2)
         Tooltip(self.save_button, "Eintrag speichern")
         btn_row += 1
-        manage = Frame(form)
+        manage = Frame(self.form)
         manage.grid(row=btn_row, column=0, columnspan=2, pady=2)
         self.load_button = tb.Button(
             manage, text="📂 Laden", command=self.load_entry
@@ -351,7 +380,7 @@ class KBManager:
         self.new_button.pack(side="left", padx=2)
         Tooltip(self.new_button, "Formular leeren")
         btn_row += 1
-        self.suggestion_box = Listbox(form)
+        self.suggestion_box = Listbox(self.form)
         self.suggestion_box.grid(
             row=btn_row,
             column=0,
@@ -360,11 +389,11 @@ class KBManager:
             pady=5,
             sticky="nsew",
         )
-        form.rowconfigure(btn_row, weight=1)
+        self.form.rowconfigure(btn_row, weight=1)
         self.suggestion_box.bind("<Double-1>", lambda e: self.load_suggestion())
         btn_row += 1
         del_btn = tb.Button(
-            form,
+            self.form,
             text="🗑 Vorschlag löschen",
             command=self.delete_suggestion,
             bootstyle="danger",
@@ -373,7 +402,7 @@ class KBManager:
         Tooltip(del_btn, "Entfernt den gewählten Vorschlag")
         btn_row += 1
         key_btn = tb.Button(
-            form,
+            self.form,
             text="🔑 API-Key eingeben",
             command=self.set_api_key,
             bootstyle="secondary",
@@ -406,19 +435,21 @@ class KBManager:
         self.tree_scroll.grid(row=1, column=1, sticky="ns")
         self.tree.bind("<<TreeviewSelect>>", lambda e: None)
         self.tree.bind("<Double-1>", lambda e: self.load_entry())
-        self.tree.tag_configure("deactivated", foreground="gray")
         self.tree.tag_configure("marked", background="#ffd966")
         self.tree.tag_configure("match", background="#ffff99")
         self.row_menu = Menu(self.tree, tearoff=0)
         self.row_menu.add_command(label="Kopieren", command=self.copy_row)
         self.row_menu.add_command(label="Löschen", command=self.delete_entry)
-        self.row_menu.add_command(label="Deaktivieren", command=self.toggle_deactivate)
         self.row_menu.add_command(label="Markieren", command=self.mark_entry)
         self.empty_menu = Menu(self.tree, tearoff=0)
         self.empty_menu.add_command(
             label="Neuen Eintrag einfügen", command=self.clear_form
         )
         self.tree.bind("<Button-3>", self.show_context_menu)
+
+        self.master.bind("<Escape>", lambda e: self.on_escape())
+
+        self.master.after(5000, self.check_csv_update)
 
         self.refresh_tree()
         self.edit_index = None
@@ -479,10 +510,11 @@ class KBManager:
     def refresh_suggestion_box(self):
         """Update the suggestion list with current items."""
         self.suggestion_box.delete(0, END)
-        for item in self.suggestions:
+        for i, item in enumerate(self.suggestions, start=1):
             question = item.get("faq_question", "")
-            answer = item.get("answer_text", "")
-            self.suggestion_box.insert(END, f"{question} -> {answer[:40]}...")
+            self.suggestion_box.insert(END, f"{i}. {question}")
+            bg = "#f7f7f7" if i % 2 else "white"
+            self.suggestion_box.itemconfig(i - 1, bg=bg)
 
     def animate_scroll_to(self, index, steps=10, delay=20):
         """Scroll the treeview to the given row with a short animation."""
@@ -517,25 +549,6 @@ class KBManager:
             self.row_menu.tk_popup(event.x_root, event.y_root)
         else:
             self.empty_menu.tk_popup(event.x_root, event.y_root)
-
-    def toggle_deactivate(self):
-        sel = self.tree.selection()
-        if not sel:
-            return
-        idx = self.tree.index(sel[0])
-        if idx in self.deactivated:
-            self.deactivated.remove(idx)
-            self.tree.item(
-                sel[0],
-                tags=tuple(
-                    t for t in self.tree.item(sel[0], "tags") if t != "deactivated"
-                ),
-            )
-        else:
-            self.deactivated.add(idx)
-            tags = set(self.tree.item(sel[0], "tags"))
-            tags.add("deactivated")
-            self.tree.item(sel[0], tags=tuple(tags))
 
     def mark_entry(self):
         sel = self.tree.selection()
@@ -597,6 +610,28 @@ class KBManager:
         self.message_label.configure(foreground=fg)
         self.master.after(5000, lambda: self.message_var.set(""))
 
+    def highlight_form(self):
+        self.form.configure(highlightbackground="#FFA64D", highlightthickness=2)
+
+    def clear_highlight(self):
+        self.form.configure(highlightthickness=0)
+
+    def on_escape(self, _=None):
+        self.clear_highlight()
+        self.filter_text.set("")
+
+    def check_csv_update(self):
+        try:
+            mtime = os.path.getmtime(self.csv_file)
+        except OSError:
+            return
+        if mtime != self.csv_mtime:
+            self.csv_mtime = mtime
+            self.df = load_kb(self.csv_file).reset_index(drop=True)
+            self.refresh_tree()
+            self.show_message("CSV erneut geladen.", success=True)
+        self.master.after(5000, self.check_csv_update)
+
     def on_filter_change(self, *_):
         if self.search_after_id:
             self.master.after_cancel(self.search_after_id)
@@ -613,6 +648,7 @@ class KBManager:
                 widget.delete(0, END)
         self.edit_index = None
         self.current_suggestion_index = None
+        self.clear_highlight()
 
     def load_entry(self):
         """Load the selected row from the table into the form for editing."""
@@ -633,6 +669,7 @@ class KBManager:
                 widget.delete(0, END)
                 widget.insert(0, value)
         self.edit_index = index
+        self.highlight_form()
         self.show_message("Eintrag geladen.", success=True)
 
     def delete_entry(self):
@@ -644,7 +681,7 @@ class KBManager:
         index = self.tree.index(selection[0])
         self.trash.append(self.df.iloc[index].to_dict())
         self.df = self.df.drop(self.df.index[index]).reset_index(drop=True)
-        save_kb(self.df)
+        save_kb(self.df, self.csv_file)
         self.refresh_tree()
         self.edit_index = None
         self.show_message("Eintrag gelöscht.", success=True)
@@ -655,7 +692,7 @@ class KBManager:
             return
         row = self.trash.pop()
         self.df.loc[len(self.df)] = row
-        save_kb(self.df)
+        save_kb(self.df, self.csv_file)
         self.refresh_tree()
         self.show_message("Eintrag wiederhergestellt.", success=True)
 
@@ -668,13 +705,7 @@ class KBManager:
                 values.append(widget.get().strip())
             else:
                 values.append(widget.get().strip())
-        data = dict(zip(COLUMNS, values))
-        try:
-            entry = FAQEntry(**data)
-        except Exception as exc:
-            self.show_message(f"Ungueltige Eingaben: {exc}", error=True)
-            return None
-        return entry.dict()
+        return dict(zip(COLUMNS, values))
 
     def set_api_key(self):
         """Prompt the user for an OpenAI API key."""
@@ -708,17 +739,17 @@ class KBManager:
             if not self.client:
                 return
         text = self.source_text.get("1.0", END).strip()
-        self.gen_progress.grid()
+        self.gen_progress.place(in_=self.gen_button, relx=0, rely=0, relwidth=1)
         self.gen_progress.start(10)
         self.ai_message_var.set("KI arbeitet ...")
         self.master.update_idletasks()
         new_entries = generate_suggestions(text, self.client)
         self.gen_progress.stop()
-        self.gen_progress.grid_remove()
+        self.gen_progress.place_forget()
         if not new_entries:
             self.ai_message_var.set("Keine geeigneten Vorschläge gefunden.")
             return
-        self.ai_message_var.set("")n
+        self.ai_message_var.set("")
         self.suggestions.extend(new_entries)
         self.refresh_suggestion_box()
 
@@ -744,6 +775,7 @@ class KBManager:
             else:
                 widget.delete(0, END)
                 widget.insert(0, val)
+        self.highlight_form()
 
     def delete_suggestion(self):
         """Remove the selected suggestion from the list."""
@@ -770,14 +802,19 @@ class KBManager:
 
     def save_entry(self):
         data = self.get_entry_values()
-        if data is None:
+        if not data:
             return
-        if not data["category"] or not data["faq_question"] or not data["answer_text"]:
-            self.show_message(
-                "Kategorie, Frage und Antwort sind Pflichtfelder.", error=True
-            )
+        if not data["faq_question"] or not data["answer_text"]:
+            self.show_message("Antwort darf nicht leer sein", error=True)
             return
-        new_row = data
+        for k in COLUMNS:
+            if k not in {"faq_question", "answer_text"} and not data[k]:
+                data[k] = "Keine Angabe"
+        try:
+            new_row = FAQEntry(**data).dict()
+        except Exception as exc:
+            self.show_message(f"Ungültige Eingaben: {exc}", error=True)
+            return
         if self.edit_index is None:
             row_index = len(self.df)
             self.df.loc[row_index] = new_row
@@ -786,11 +823,12 @@ class KBManager:
             for col, val in new_row.items():
                 self.df.at[row_index, col] = val
             self.edit_index = None
-        save_kb(self.df)
+        save_kb(self.df, self.csv_file)
         self.show_message("Eintrag wurde gespeichert.", success=True)
         self.refresh_tree()
         self.highlight_row(row_index)
         self.clear_form()
+        self.clear_highlight()
         if self.current_suggestion_index is not None:
             self.suggestions.pop(self.current_suggestion_index)
             self.refresh_suggestion_box()
