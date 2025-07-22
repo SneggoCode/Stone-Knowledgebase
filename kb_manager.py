@@ -213,7 +213,6 @@ def find_similar(df, question, client, existing_embeddings=None, top_n=3):
             results.append((sims[i], row))
     return results
 
-
 LAST_RAW_CONTENT = ""
 
 
@@ -635,11 +634,10 @@ class KBManager:
                 widget.insert(0, value)
         self.edit_index = index
         self.show_message("Eintrag geladen.")
-
     def delete_entry(self):
         """Delete the selected row from the table and CSV."""
         selection = self.tree.selection()
-        if not selection:
+        if not selection:l
             self.show_message("Bitte zuerst einen Eintrag auswählen.", error=True)
             return
         index = self.tree.index(selection[0])
