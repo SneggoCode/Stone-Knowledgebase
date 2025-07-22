@@ -7,6 +7,7 @@ import json
 from pydantic import BaseModel, field_validator
 from openai import OpenAI
 from language_tool_python import LanguageTool
+import threading
 from tkinter import (
     Label,
     Entry,
@@ -100,6 +101,7 @@ Beispiele:
 USER:
 Erstelle FAQ-Einträge aus diesem Rohtext (Deutsch):
 """
+
 FALLBACK_HINT = "Bitte erstelle passende FAQ-Einträge, selbst wenn der Text kaum Informationen enthält.\n"
 
 
@@ -290,6 +292,13 @@ class KBManager:
         master.title("Stone Knowledgebase Manager")
         master.option_add("*Font", "Aptos 12")
         self.style = tb.Style("flatly")
+        self.style.configure(
+            "Treeview.Heading",
+            font=("Aptos", 12, "bold"),
+            background="#e6e6e6",
+            borderwidth=1,
+            bordercolor="#555555",
+        )
         self.tooltips = load_tooltips()
         self.csv_file = get_csv_path()
         self.df = load_kb(self.csv_file).reset_index(drop=True)
@@ -303,6 +312,7 @@ class KBManager:
         self.embeddings = []
         self.trash = []
         self.search_after_id = None
+        self.spell_after = {}
         if self.client and not self.df.empty:
             self.embeddings = [
                 get_embedding(self.client, q) for q in self.df["faq_question"]
@@ -348,7 +358,8 @@ class KBManager:
                 widget = widget_cls(self.form, width=60, **opts)
                 if key in {"faq_question", "answer_text"}:
                     widget.bind(
-                        "<KeyRelease>", lambda e, w=widget: self.check_spelling(w)
+                        "<KeyRelease>",
+                        lambda e, w=widget: self.schedule_spellcheck(w),
                     )
             elif widget_cls is ttk.Combobox:
                 widget = widget_cls(self.form, **opts)
@@ -670,12 +681,22 @@ class KBManager:
             color = "black"
         self.message_label.configure(foreground=color)
         if error or success or info:
+            root = self.master
+            x = root.winfo_rootx() + root.winfo_width() - 20
+            y = root.winfo_rooty() + root.winfo_height() - 20
+            screen_w = root.winfo_screenwidth()
+            screen_h = root.winfo_screenheight()
+            anchor = "nw"
+            if x > screen_w or y > screen_h or x < 0 or y < 0:
+                x = root.winfo_rootx() + root.winfo_width() // 2
+                y = root.winfo_rooty() + root.winfo_height() - 20
+                anchor = "s"
             ToastNotification(
                 title="",
                 message=message,
                 duration=4000,
                 bootstyle="secondary",
-                position=(0, 0, "se"),
+                position=(x, y, anchor),
             ).show_toast()
         self.master.after(5000, lambda: self.message_var.set(""))
 
@@ -752,18 +773,37 @@ class KBManager:
         self.refresh_tree()
         self.show_message("Eintrag wiederhergestellt.", success=True)
 
+    def schedule_spellcheck(self, widget):
+        """Debounce and start asynchronous spell checking."""
+        if widget in self.spell_after:
+            self.master.after_cancel(self.spell_after[widget])
+        self.spell_after[widget] = self.master.after(
+            300, lambda w=widget: self.check_spelling(w)
+        )
+
     def check_spelling(self, widget):
         text = widget.get("1.0", END)
-        widget.tag_delete("misspell")
-        widget.tag_configure("misspell", underline=True, foreground="#d9534f")
-        try:
-            matches = self.lt.check(text)
-        except Exception:
-            matches = []
-        for m in matches:
-            start = f"1.0+{m.offset}c"
-            end = f"1.0+{m.offset + m.errorLength}c"
-            widget.tag_add("misspell", start, end)
+
+        def worker():
+            try:
+                matches = self.lt.check(text)
+            except Exception:
+                matches = []
+
+            def apply():
+                widget.tag_delete("misspell")
+                widget.tag_configure(
+                    "misspell", underline=True, foreground="#d9534f"
+                )
+                for m in matches:
+                    start = f"1.0+{m.offset}c"
+                    end = f"1.0+{m.offset + m.errorLength}c"
+                    widget.tag_add("misspell", start, end)
+
+            widget.after(0, apply)
+
+        threading.Thread(target=worker, daemon=True).start()
+        self.spell_after.pop(widget, None)
 
     def get_entry_values(self):
         values = []

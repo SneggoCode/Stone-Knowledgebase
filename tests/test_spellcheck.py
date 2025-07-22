@@ -30,5 +30,7 @@ def test_spellcheck_highlight(monkeypatch):
     widget = app.entries[1]  # faq_question Text widget
     widget.insert('1.0', 'Hallo testt')
     app.check_spelling(widget)
+    root.after(400, root.quit)
+    root.mainloop()
     assert widget.tag_ranges('misspell')
     root.destroy()
