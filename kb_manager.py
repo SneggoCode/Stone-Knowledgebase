@@ -8,7 +8,7 @@ from pydantic import BaseModel, field_validator
 from openai import OpenAI
 from language_tool_python import LanguageTool
 import threading
-from collections import deque
+from collections import dequen
 from tkinter import (
     Label,
     Entry,
