@@ -834,7 +834,6 @@ class KBManager:
             self.refresh_suggestion_box()
             self.current_suggestion_index = None
 
-
 if __name__ == "__main__":
     root = tb.Window(themename="flatly")
     app = KBManager(root)
