@@ -1,8 +1,8 @@
 import os
 import pandas as pd
-from sklearn.feature_extraction.text import TfidfVectorizer
-from sklearn.metrics.pairwise import cosine_similarity
+import numpy as np
 import json
+from pydantic import BaseModel, validator
 from openai import OpenAI
 from tkinter import (
     Tk,
@@ -30,27 +30,63 @@ COLUMNS = [
     'anwendung',
 ]
 
+
+class FAQEntry(BaseModel):
+    category: str
+    faq_question: str
+    answer_text: str
+    stone_type: str = ''
+    product_form: str = ''
+    product_size: str = ''
+    eigenschaft: str = ''
+    anwendung: str = ''
+
+    @validator('product_size')
+    def ensure_unit(cls, v):
+        if v and not any(unit in v for unit in ['mm', 'cm', 'm']):
+            if v.strip().isdigit():
+                return v + ' mm'
+        return v
+
 def load_kb():
     """Load the knowledge base from CSV or return an empty DataFrame."""
     if os.path.exists(CSV_FILE):
         df = pd.read_csv(CSV_FILE)
-        return df.reindex(columns=COLUMNS)
+        df = df.reindex(columns=COLUMNS)
+        df.fillna('', inplace=True)
+        return df
     return pd.DataFrame(columns=COLUMNS)
 
 def save_kb(df):
     """Persist the DataFrame back to the CSV file."""
-    df.to_csv(CSV_FILE, index=False)
+    df.reindex(columns=COLUMNS).to_csv(CSV_FILE, index=False)
 
-def find_similar(df, question, top_n=3):
-    if df.empty or not question.strip():
+def cosine(a, b):
+    a = np.array(a)
+    b = np.array(b)
+    if not np.any(a) or not np.any(b):
+        return 0.0
+    return float(np.dot(a, b) / (np.linalg.norm(a) * np.linalg.norm(b)))
+
+
+def get_embedding(client, text):
+    resp = client.embeddings.create(input=[text], model="text-embedding-ada-002")
+    return resp.data[0].embedding
+
+
+def find_similar(df, question, client, existing_embeddings=None, top_n=3):
+    if df.empty or not question.strip() or not client:
         return []
-    questions = df['faq_question'].fillna('').tolist() + [question]
-    vec = TfidfVectorizer().fit_transform(questions)
-    sims = cosine_similarity(vec[-1], vec[:-1]).flatten()
-    idx = sims.argsort()[::-1][:top_n]
+    if existing_embeddings is None:
+        existing_embeddings = [
+            get_embedding(client, q) for q in df["faq_question"].fillna("")
+        ]
+    q_emb = get_embedding(client, question)
+    sims = [cosine(q_emb, emb) for emb in existing_embeddings]
+    idx = np.argsort(sims)[::-1][:top_n]
     results = []
     for i in idx:
-        if sims[i] > 0.3:  # threshold
+        if sims[i] > 0.7:
             row = df.iloc[i]
             results.append((sims[i], row))
     return results
@@ -63,6 +99,10 @@ class KBManager:
         self.api_key = os.environ.get('OPENAI_API_KEY', '')
         self.client = OpenAI(api_key=self.api_key) if self.api_key else None
         self.suggestions = []
+        self.embeddings = []
+        self.trash = []
+        if self.client and not self.df.empty:
+            self.embeddings = [get_embedding(self.client, q) for q in self.df['faq_question']]
 
         # frames for layout
         form = Frame(master)
@@ -73,7 +113,7 @@ class KBManager:
         master.columnconfigure(1, weight=1)
         master.rowconfigure(0, weight=1)
         table.columnconfigure(0, weight=1)
-        table.rowconfigure(0, weight=1)
+        table.rowconfigure(1, weight=1)
 
         labels = [
             'Kategorie',
@@ -117,14 +157,23 @@ class KBManager:
         Button(form, text='Speichern', command=self.save_entry).grid(row=base+2, column=1, pady=5)
         Button(form, text='Eintrag laden', command=self.load_entry).grid(row=base+3, column=0, pady=2)
         Button(form, text='Eintrag löschen', command=self.delete_entry).grid(row=base+3, column=1, pady=2)
-        Button(form, text='Neu', command=self.clear_form).grid(row=base+4, column=0, columnspan=2, pady=2)
+        Button(form, text='Rückgängig Löschen', command=self.undo_delete).grid(row=base+4, column=0, columnspan=2, pady=2)
+        Button(form, text='Neu', command=self.clear_form).grid(row=base+5, column=0, columnspan=2, pady=2)
         self.suggestion_box = Listbox(form, width=60)
-        self.suggestion_box.grid(row=base+5, column=0, columnspan=2, padx=5, pady=5)
+        self.suggestion_box.grid(row=base+6, column=0, columnspan=2, padx=5, pady=5)
         self.suggestion_box.bind('<Double-1>', lambda e: self.load_suggestion())
-        Button(form, text='Vorschlag löschen', command=self.delete_suggestion).grid(row=base+6, column=0, columnspan=2, pady=2)
+        Button(form, text='Vorschlag löschen', command=self.delete_suggestion).grid(row=base+7, column=0, columnspan=2, pady=2)
         self.listbox = Listbox(form, width=60)
-        self.listbox.grid(row=base+7, column=0, columnspan=2, padx=5, pady=5)
-        Button(form, text='API-Key eingeben', command=self.set_api_key).grid(row=base+8, column=0, columnspan=2, pady=2)
+        self.listbox.grid(row=base+8, column=0, columnspan=2, padx=5, pady=5)
+        Button(form, text='API-Key eingeben', command=self.set_api_key).grid(row=base+9, column=0, columnspan=2, pady=2)
+
+        filter_frame = Frame(table)
+        filter_frame.grid(row=0, column=0, columnspan=2, sticky='ew', pady=(0,4))
+        Label(filter_frame, text='Filter:').pack(side='left')
+        self.filter_var = ttk.Entry(filter_frame)
+        self.filter_var.pack(side='left', fill='x', expand=True)
+        Button(filter_frame, text='Suchen', command=self.apply_filter).pack(side='left')
+        Button(filter_frame, text='Reset', command=self.reset_filter).pack(side='left')
 
         self.tree = ttk.Treeview(table, columns=COLUMNS, show='headings')
         self.sort_state = {c: False for c in COLUMNS}
@@ -133,8 +182,8 @@ class KBManager:
             self.tree.column(col, width=120, anchor='w')
         self.tree_scroll = Scrollbar(table, orient='vertical', command=self.tree.yview)
         self.tree.configure(yscrollcommand=self.tree_scroll.set)
-        self.tree.grid(row=0, column=0, sticky='nsew')
-        self.tree_scroll.grid(row=0, column=1, sticky='ns')
+        self.tree.grid(row=1, column=0, sticky='nsew')
+        self.tree_scroll.grid(row=1, column=1, sticky='ns')
         self.tree.bind('<Double-1>', lambda e: self.load_entry())
 
         self.refresh_tree()
@@ -146,6 +195,21 @@ class KBManager:
             self.tree.delete(item)
         for _, row in self.df.iterrows():
             self.tree.insert('', 'end', values=row.tolist())
+
+    def apply_filter(self):
+        term = self.filter_var.get().strip()
+        if not term:
+            self.refresh_tree()
+            return
+        for item in self.tree.get_children():
+            self.tree.delete(item)
+        mask = self.df['faq_question'].str.contains(term, case=False, na=False)
+        for _, row in self.df[mask].iterrows():
+            self.tree.insert('', 'end', values=row.tolist())
+
+    def reset_filter(self):
+        self.filter_var.delete(0, END)
+        self.refresh_tree()
 
     def sort_by_column(self, col):
         """Sort the table by the given column."""
@@ -222,10 +286,20 @@ class KBManager:
             return
         index = self.tree.index(selection[0])
         if messagebox.askyesno('Löschen', 'Ausgewählten Eintrag wirklich löschen?'):
+            self.trash.append(self.df.iloc[index].to_dict())
             self.df = self.df.drop(self.df.index[index]).reset_index(drop=True)
             save_kb(self.df)
             self.refresh_tree()
             self.edit_index = None
+
+    def undo_delete(self):
+        if not self.trash:
+            messagebox.showinfo('Hinweis', 'Kein Eintrag zum Wiederherstellen.')
+            return
+        row = self.trash.pop()
+        self.df.loc[len(self.df)] = row
+        save_kb(self.df)
+        self.refresh_tree()
 
     def get_entry_values(self):
         values = []
@@ -236,7 +310,14 @@ class KBManager:
                 values.append(widget.get().strip())
             else:
                 values.append(widget.get().strip())
-        return values
+        data = dict(zip(COLUMNS, values))
+        try:
+            entry = FAQEntry(**data)
+        except Exception as exc:
+            messagebox.showerror('Fehler', f'Ungueltige Eingaben: {exc}')
+            return None
+        return entry.dict()
+
 
     def set_api_key(self):
         """Prompt the user for an OpenAI API key."""
@@ -306,7 +387,12 @@ class KBManager:
         if not isinstance(entries, list):
             messagebox.showinfo('Hinweis', 'Keine geeigneten Vorschläge gefunden.')
             return
-        self.suggestions.extend(entries)
+        for e in entries:
+            try:
+                validated = FAQEntry(**e).dict()
+                self.suggestions.append(validated)
+            except Exception:
+                continue
         if not self.suggestions:
             messagebox.showinfo('Hinweis', 'Keine geeigneten Vorschläge gefunden.')
             return
@@ -319,8 +405,12 @@ class KBManager:
             return
         index = sel[0]
         suggestion = self.suggestions.pop(index)
+        try:
+            data = FAQEntry(**suggestion).dict()
+        except Exception:
+            data = suggestion
         for widget, col in zip(self.entries, COLUMNS):
-            val = suggestion.get(col, '')
+            val = data.get(col, '')
             if isinstance(widget, Text):
                 widget.delete('1.0', END)
                 widget.insert('1.0', val)
@@ -340,9 +430,11 @@ class KBManager:
         self.refresh_suggestion_box()
 
     def check_similar(self):
-        values = self.get_entry_values()
-        question = values[1]
-        sims = find_similar(self.df, question)
+        data = self.get_entry_values()
+        if data is None:
+            return
+        question = data['faq_question']
+        sims = find_similar(self.df, question, self.client, self.embeddings)
         self.listbox.delete(0, END)
         for score, row in sims:
             display = f"({score:.2f}) {row['faq_question']} -> {row['answer_text']}"
@@ -353,11 +445,13 @@ class KBManager:
             self.listbox.insert(END, 'Keine ähnlichen Fragen gefunden.')
 
     def save_entry(self):
-        values = self.get_entry_values()
-        if not values[0] or not values[1] or not values[2]:
+        data = self.get_entry_values()
+        if data is None:
+            return
+        if not data['category'] or not data['faq_question'] or not data['answer_text']:
             messagebox.showerror('Fehler', 'Kategorie, Frage und Antwort sind Pflichtfelder.')
             return
-        new_row = dict(zip(COLUMNS, values))
+        new_row = data
         if self.edit_index is None:
             row_index = len(self.df)
             self.df.loc[row_index] = new_row

@@ -18,6 +18,8 @@ product_form, product_size, eigenschaft, anwendung
 `category` unterscheidet z.B. `product`, `payment`, `delivery`,
 `installation` oder `warranty`. Die übrigen Felder können leer bleiben,
 wenn sie nicht zum jeweiligen Eintrag passen.
+Beim Speichern überprüft eine kleine Pydantic-Datenklasse die Eingaben und
+ergänzt fehlende Einheiten bei `product_size` automatisch.
 
 ## Verwendung
 
@@ -27,7 +29,8 @@ wenn sie nicht zum jeweiligen Eintrag passen.
    pip install -r requirements.txt
    ```
    Die Datei benötigt `openai>=1.0`. Das Programm verwendet bereits die
-   neue clientbasierte Schnittstelle der Bibliothek.
+   neue clientbasierte Schnittstelle der Bibliothek. Zusätzlich werden
+   `numpy` und `pydantic` genutzt.
 3. Programm starten (benötigt eine grafische Oberfläche):
    ```bash
    python kb_manager.py
@@ -35,7 +38,8 @@ wenn sie nicht zum jeweiligen Eintrag passen.
    In einer Kopf-losen Umgebung kann ein virtuelles Display wie
    `Xvfb` verwendet werden.
 4. Nach dem Start werden alle bestehenden Einträge rechts im Fenster angezeigt
-   und lassen sich durchscrollen.
+   und lassen sich durchscrollen oder filtern. Eine Suchleiste über der Tabelle
+   ermöglicht das schnelle Auffinden von Fragen.
 5. Die Felder ausfüllen und auf **Ähnliche Fragen anzeigen** klicken, um
    vorhandene oder ähnliche FAQ-Einträge zu suchen. Die Tabelle scrollt
    automatisch zum besten Treffer.
@@ -43,7 +47,8 @@ wenn sie nicht zum jeweiligen Eintrag passen.
    wenn vorher ein Datensatz geladen wurde – aktualisiert.
 7. Über **Eintrag laden** kann eine markierte Zeile zum Bearbeiten in das
    Formular übernommen werden.
-8. Mit **Eintrag löschen** wird die ausgewählte Zeile dauerhaft entfernt.
+8. Mit **Eintrag löschen** wird die ausgewählte Zeile dauerhaft entfernt. Über
+   **Rückgängig Löschen** lässt sich der letzte gelöschte Datensatz wiederherstellen.
 9. **Neu** leert das Formular ohne zu speichern.
 10. Durch einen Doppelklick auf eine Tabellenzeile wird der Eintrag direkt zum Bearbeiten geladen.
 11. Ein Klick auf einen Spaltenkopf sortiert die Tabelle.
@@ -60,6 +65,10 @@ Mit **Vorschläge generieren** analysiert die KI den Inhalt und erstellt stets
 passende FAQ-Einträge. Selbst bei spärlichen Angaben versucht die KI, einen
 Vorschlag zu formulieren. Reicht der Text nicht aus, weist sie darauf hin und
 schlägt vor, welche Informationen noch fehlen.
+
+Für die Suche nach ähnlichen Fragen nutzt das Programm OpenAI-Embeddings
+anstelle klassischer TF-IDF-Vektoren. Dadurch werden auch semantisch passende
+Einträge gefunden.
 
 Alle generierten Vorschläge sammeln sich in einer Liste unterhalb des
 Formulars. Ein Doppelklick übernimmt einen Vorschlag in die Eingabefelder und
