@@ -30,7 +30,7 @@ ergänzt fehlende Einheiten bei `product_size` automatisch.
    ```
    Die Datei benötigt `openai>=1.0`. Das Programm verwendet bereits die
    neue clientbasierte Schnittstelle der Bibliothek. Zusätzlich werden
-   `numpy` und `pydantic` genutzt.
+   `numpy`, `pydantic` und `ttkbootstrap` genutzt.
 3. Programm starten (benötigt eine grafische Oberfläche):
    ```bash
    python kb_manager.py
@@ -52,14 +52,23 @@ ergänzt fehlende Einheiten bei `product_size` automatisch.
 9. **Neu** leert das Formular ohne zu speichern.
 10. Durch einen Doppelklick auf eine Tabellenzeile wird der Eintrag direkt zum Bearbeiten geladen.
 11. Ein Klick auf einen Spaltenkopf sortiert die Tabelle.
-
 12. Unten links zeigt das Fenster die aktuelle Versionsnummer an.
+13. Ein Dark-Mode-Button wechselt zwischen hellem und dunklem Stil.
+14. Rechtsklick-Menüs und eine Toolbar bieten schnellen Zugriff auf Laden,
+    Speichern und Löschen. Ein globaler Hotkey **Strg+S** speichert den
+    aktuellen Eintrag.
+15. Beim Tippen in die Filterzeile startet automatisch eine Live-Suche. Ein
+    Fortschrittsbalken erscheint, wenn sie länger dauert.
+16. Tooltips erklären die Eingabefelder. Die Texte liegen in
+    `ui_tooltips.json` und lassen sich leicht anpassen.
 
 Nach Installation der Abhängigkeiten können automatisierte Tests mit
-`pytest` ausgeführt werden:
+`pytest` ausgeführt werden. Zusätzlich sorgt `flake8` für einheitlichen
+Code-Stil:
 
 ```bash
 pytest
+flake8
 ```
 ## KI-Unterstützung
 

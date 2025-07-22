@@ -1,12 +1,12 @@
 import os
 import sys
+import textwrap
 import pandas as pd
 import numpy as np
 import json
 from pydantic import BaseModel, validator
 from openai import OpenAI
 from tkinter import (
-    Tk,
     Label,
     Entry,
     Text,
@@ -14,15 +14,19 @@ from tkinter import (
     Listbox,
     Scrollbar,
     END,
+    Menu,
+    Toplevel,
     messagebox,
     Frame,
+    StringVar,
 )
 from tkinter import ttk, simpledialog
-
+import ttkbootstrap as tb
 
 VERSION = os.environ.get("PR_NUMBER", "dev")
 
 CSV_FILE = 'knowledgebase.csv'
+TOOLTIPS_FILE = 'ui_tooltips.json'
 COLUMNS = [
     'category',
     'faq_question',
@@ -46,6 +50,49 @@ User: Erstelle FAQ-Einträge aus diesem Rohtext (Deutsch):
 """  # noqa: E501
 
 FALLBACK_HINT = "Bitte erstelle passende FAQ-Einträge, selbst wenn der Text kaum Informationen enthält.\n"
+
+
+def load_tooltips():
+    try:
+        with open(TOOLTIPS_FILE, "r", encoding="utf-8") as f:
+            return json.load(f)
+    except Exception:
+        return {}
+
+
+class Tooltip:
+    """Simple hover tooltip."""
+
+    def __init__(self, widget, text):
+        self.widget = widget
+        self.text = text
+        self.tipwindow = None
+        widget.bind("<Enter>", self.show)
+        widget.bind("<Leave>", self.hide)
+
+    def show(self, _=None):
+        if self.tipwindow or not self.text:
+            return
+        x = self.widget.winfo_rootx() + 20
+        y = self.widget.winfo_rooty() + self.widget.winfo_height() + 1
+        self.tipwindow = tw = Toplevel(self.widget)
+        tw.wm_overrideredirect(True)
+        tw.wm_geometry(f"+{x}+{y}")
+        Label(
+            tw,
+            text=self.text,
+            background="#ffffe0",
+            relief="solid",
+            borderwidth=1,
+            font=("Segoe UI", 10),
+            justify="left",
+            wraplength=300,
+        ).pack(ipadx=1)
+
+    def hide(self, _=None):
+        if self.tipwindow:
+            self.tipwindow.destroy()
+            self.tipwindow = None
 
 
 class FAQEntry(BaseModel):
@@ -155,23 +202,37 @@ class KBManager:
     def __init__(self, master):
         self.master = master
         master.title('Stone Knowledgebase Manager')
+        master.option_add("*Font", "Segoe UI 12")
+        self.style = tb.Style("flatly")
+        self.dark = False
+        self.tooltips = load_tooltips()
         self.df = load_kb().reset_index(drop=True)
         self.api_key = os.environ.get('OPENAI_API_KEY', '')
         self.client = OpenAI(api_key=self.api_key) if self.api_key else None
         self.suggestions = []
         self.embeddings = []
         self.trash = []
+        self.deactivated = set()
+        self.marked = set()
+        self.search_after_id = None
         if self.client and not self.df.empty:
             self.embeddings = [get_embedding(self.client, q) for q in self.df['faq_question']]
 
         # frames for layout
+        toolbar = Frame(master)
         form = Frame(master)
         table = Frame(master)
-        form.grid(row=0, column=0, sticky='nw', padx=5, pady=5)
-        table.grid(row=0, column=1, sticky='nsew', padx=5, pady=5)
+        toolbar.grid(row=0, column=0, columnspan=2, sticky='ew')
+        form.grid(row=1, column=0, sticky='nw', padx=5, pady=5)
+        table.grid(row=1, column=1, sticky='nsew', padx=5, pady=5)
+
+        Button(toolbar, text='Neu', command=self.clear_form).pack(side='left')
+        Button(toolbar, text='Speichern', command=self.save_entry).pack(side='left')
+        Button(toolbar, text='Löschen', command=self.delete_entry).pack(side='left')
+        Button(toolbar, text='Dark-Mode', command=self.toggle_theme).pack(side='right')
 
         master.columnconfigure(1, weight=1)
-        master.rowconfigure(0, weight=1)
+        master.rowconfigure(1, weight=1)
         table.columnconfigure(0, weight=1)
         table.rowconfigure(1, weight=1)
 
@@ -199,19 +260,24 @@ class KBManager:
                 txt = Text(form, width=40, height=4)
                 txt.grid(row=i, column=1, padx=5, pady=2)
                 self.entries.append(txt)
+                Tooltip(txt, self.tooltips.get('answer_text', ''))
             elif lbl == 'Kategorie':
                 cb = ttk.Combobox(form, values=self.categories, state='readonly', width=37)
                 cb.grid(row=i, column=1, padx=5, pady=2)
                 self.entries.append(cb)
+                Tooltip(cb, self.tooltips.get('category', ''))
             else:
                 ent = Entry(form, width=40)
                 ent.grid(row=i, column=1, padx=5, pady=2)
                 self.entries.append(ent)
+                col_key = COLUMNS[i]
+                Tooltip(ent, self.tooltips.get(col_key, ''))
 
         base = len(labels)
         Label(form, text='Text für KI-Vorschläge').grid(row=base, column=0, sticky='ne')
         self.source_text = Text(form, width=40, height=6)
         self.source_text.grid(row=base, column=1, padx=5, pady=2)
+        Tooltip(self.source_text, self.tooltips.get('source', ''))
         Button(
             form,
             text='Vorschläge generieren',
@@ -254,10 +320,12 @@ class KBManager:
         filter_frame = Frame(table)
         filter_frame.grid(row=0, column=0, columnspan=2, sticky='ew', pady=(0, 4))
         Label(filter_frame, text='Filter:').pack(side='left')
-        self.filter_var = ttk.Entry(filter_frame)
-        self.filter_var.pack(side='left', fill='x', expand=True)
-        Button(filter_frame, text='Suchen', command=self.apply_filter).pack(side='left')
+        self.filter_text = StringVar()
+        self.filter_text.trace_add('write', self.on_filter_change)
+        self.filter_entry = ttk.Entry(filter_frame, textvariable=self.filter_text)
+        self.filter_entry.pack(side='left', fill='x', expand=True)
         Button(filter_frame, text='Reset', command=self.reset_filter).pack(side='left')
+        self.progress = ttk.Progressbar(filter_frame, mode='indeterminate', length=80)
 
         self.tree = ttk.Treeview(table, columns=COLUMNS, show='headings')
         self.sort_state = {c: False for c in COLUMNS}
@@ -268,33 +336,58 @@ class KBManager:
         self.tree.configure(yscrollcommand=self.tree_scroll.set)
         self.tree.grid(row=1, column=0, sticky='nsew')
         self.tree_scroll.grid(row=1, column=1, sticky='ns')
+        self.tree.bind('<<TreeviewSelect>>', self.update_detail)
+        self.detail = Text(table, height=6, wrap='word', state='disabled')
+        self.detail.grid(row=2, column=0, columnspan=2, sticky='nsew', pady=(4, 0))
         self.tree.bind('<Double-1>', lambda e: self.load_entry())
+        self.tree.tag_configure('deactivated', foreground='gray')
+        self.tree.tag_configure('marked', background='#ffd966')
+        self.row_menu = Menu(self.tree, tearoff=0)
+        self.row_menu.add_command(label='Löschen', command=self.delete_entry)
+        self.row_menu.add_command(label='Deaktivieren', command=self.toggle_deactivate)
+        self.row_menu.add_command(label='Markieren', command=self.mark_entry)
+        self.empty_menu = Menu(self.tree, tearoff=0)
+        self.empty_menu.add_command(label='Neuen Eintrag einfügen', command=self.clear_form)
+        self.tree.bind('<Button-3>', self.show_context_menu)
 
         self.refresh_tree()
         self.edit_index = None
 
-        Label(master, text=f"Version {VERSION}").grid(row=1, column=0, sticky='w', padx=5, pady=2)
+        Label(master, text=f"Version {VERSION}").grid(row=2, column=0, sticky='w', padx=5, pady=2)
+        master.bind_all('<Control-s>', lambda e: self.save_entry())
 
     def refresh_tree(self):
         """Fill the treeview with all current rows."""
         for item in self.tree.get_children():
             self.tree.delete(item)
+        max_lines = 1
         for _, row in self.df.iterrows():
-            self.tree.insert('', 'end', values=row.tolist())
+            values = []
+            for col in COLUMNS:
+                text = str(row[col])
+                wrapped = textwrap.fill(text, 30)
+                values.append(wrapped)
+                max_lines = max(max_lines, wrapped.count('\n') + 1)
+            self.tree.insert('', 'end', values=values)
+        ttk.Style().configure('Treeview', rowheight=20 * max_lines)
 
     def apply_filter(self):
-        term = self.filter_var.get().strip()
+        term = self.filter_text.get().strip()
         if not term:
             self.refresh_tree()
             return
+        show_id = self.master.after(200, self.start_progress)
         for item in self.tree.get_children():
             self.tree.delete(item)
         mask = self.df['faq_question'].str.contains(term, case=False, na=False)
         for _, row in self.df[mask].iterrows():
-            self.tree.insert('', 'end', values=row.tolist())
+            values = [textwrap.fill(str(row[c]), 30) for c in COLUMNS]
+            self.tree.insert('', 'end', values=values)
+        self.master.after_cancel(show_id)
+        self.stop_progress()
 
     def reset_filter(self):
-        self.filter_var.delete(0, END)
+        self.filter_text.set('')
         self.refresh_tree()
 
     def sort_by_column(self, col):
@@ -331,6 +424,71 @@ class KBManager:
             self.tree.selection_set(iid)
             self.tree.focus(iid)
             self.animate_scroll_to(index)
+
+    def update_detail(self, _=None):
+        sel = self.tree.selection()
+        self.detail.config(state='normal')
+        self.detail.delete('1.0', END)
+        if sel:
+            index = self.tree.index(sel[0])
+            row = self.df.iloc[index]
+            text = "\n".join(f"{c}: {row[c]}" for c in COLUMNS)
+            self.detail.insert('1.0', textwrap.fill(text, 80))
+        self.detail.config(state='disabled')
+
+    def toggle_theme(self):
+        self.dark = not self.dark
+        theme = "darkly" if self.dark else "flatly"
+        self.style.theme_use(theme)
+
+    def show_context_menu(self, event):
+        rowid = self.tree.identify_row(event.y)
+        if rowid:
+            self.tree.selection_set(rowid)
+            self.row_menu.tk_popup(event.x_root, event.y_root)
+        else:
+            self.empty_menu.tk_popup(event.x_root, event.y_root)
+
+    def toggle_deactivate(self):
+        sel = self.tree.selection()
+        if not sel:
+            return
+        idx = self.tree.index(sel[0])
+        if idx in self.deactivated:
+            self.deactivated.remove(idx)
+            self.tree.item(sel[0], tags=tuple(t for t in self.tree.item(sel[0], 'tags') if t != 'deactivated'))
+        else:
+            self.deactivated.add(idx)
+            tags = set(self.tree.item(sel[0], 'tags'))
+            tags.add('deactivated')
+            self.tree.item(sel[0], tags=tuple(tags))
+
+    def mark_entry(self):
+        sel = self.tree.selection()
+        if not sel:
+            return
+        idx = self.tree.index(sel[0])
+        if idx in self.marked:
+            self.marked.remove(idx)
+            self.tree.item(sel[0], tags=tuple(t for t in self.tree.item(sel[0], 'tags') if t != 'marked'))
+        else:
+            self.marked.add(idx)
+            tags = set(self.tree.item(sel[0], 'tags'))
+            tags.add('marked')
+            self.tree.item(sel[0], tags=tuple(tags))
+
+    def start_progress(self):
+        self.progress.pack(side='left')
+        self.progress.start(10)
+
+    def stop_progress(self):
+        self.progress.stop()
+        self.progress.pack_forget()
+
+    def on_filter_change(self, *_):
+        if self.search_after_id:
+            self.master.after_cancel(self.search_after_id)
+        self.search_after_id = self.master.after(300, self.apply_filter)
 
     def clear_form(self):
         """Clear all entry widgets and reset edit mode."""
@@ -520,6 +678,6 @@ class KBManager:
 
 
 if __name__ == '__main__':
-    root = Tk()
+    root = tb.Window(themename='flatly')
     app = KBManager(root)
     root.mainloop()
