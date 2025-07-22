@@ -52,6 +52,7 @@ ergänzt fehlende Einheiten bei `product_size` automatisch.
 9. **Neu** leert das Formular ohne zu speichern.
 10. Durch einen Doppelklick auf eine Tabellenzeile wird der Eintrag direkt zum Bearbeiten geladen.
 11. Ein Klick auf einen Spaltenkopf sortiert die Tabelle.
+
 12. Unten links zeigt das Fenster die aktuelle Versionsnummer an.
 
 Nach Installation der Abhängigkeiten können automatisierte Tests mit
@@ -60,7 +61,6 @@ Nach Installation der Abhängigkeiten können automatisierte Tests mit
 ```bash
 pytest
 ```
-
 ## KI-Unterstützung
 
 Neben dem manuellen Einpflegen kann das Programm aus beliebigem Text neue

@@ -19,6 +19,7 @@ from tkinter import (
 )
 from tkinter import ttk, simpledialog
 
+
 VERSION = os.environ.get("PR_NUMBER", "dev")
 
 CSV_FILE = 'knowledgebase.csv'
