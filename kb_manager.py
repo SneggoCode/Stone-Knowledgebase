@@ -8,7 +8,7 @@ from pydantic import BaseModel, field_validator
 from openai import OpenAI
 from language_tool_python import LanguageTool
 import threading
-from collections import dequen
+from collections import deque
 from tkinter import (
     Label,
     Entry,
@@ -314,6 +314,7 @@ class KBManager:
         self.embeddings = []
         self.trash = []
         self.form_history = deque(maxlen=5)
+        self.is_dirty = False
         self.search_after_id = None
         self.spell_after = {}
         if self.client and not self.df.empty:
@@ -340,7 +341,14 @@ class KBManager:
         self.entries = []
         self.categories = CATEGORIES
 
-        self.form_block = Frame(self.form, background="#f2f2f2", bd=1, relief="solid")
+        self.form_block = Frame(
+            self.form,
+            background="#f2f2f2",
+            bd=1,
+            relief="solid",
+            highlightthickness=2,
+            highlightbackground="#f2f2f2",
+        )
         self.form_block.grid(row=0, column=0, sticky="nsew", pady=(0, 5))
         self.form_block.columnconfigure(1, weight=1)
         Label(
@@ -377,31 +385,55 @@ class KBManager:
                     widget.bind(
                         "<KeyRelease>",
                         lambda e, w=widget: self.schedule_spellcheck(w),
+                        add="+",
                     )
             elif widget_cls is ttk.Combobox:
                 widget = widget_cls(self.form_block, **opts)
             else:
                 widget = widget_cls(self.form_block, width=60)
             widget.grid(row=i, column=1, padx=5, pady=2, sticky="ew")
+            if widget_cls is ttk.Combobox:
+                widget.bind(
+                    "<<ComboboxSelected>>", lambda e: self.set_form_dirty(True), add="+"
+                )
+            else:
+                widget.bind(
+                    "<KeyRelease>", lambda e: self.set_form_dirty(True), add="+"
+                )
             Tooltip(widget, self.tooltips.get(key, ""))
             self.entries.append(widget)
 
         btn_row = len(fields) + 1
         manage = Frame(self.form_block, background="#f2f2f2")
         manage.grid(row=btn_row, column=0, columnspan=2, pady=5, sticky="w")
-        self.sim_button = tb.Button(manage, text="🔍 Ähnliche Einträge", command=self.check_similar)
+        self.sim_button = tb.Button(
+            manage, text="🔍 Ähnliche Einträge", command=self.check_similar
+        )
         self.sim_button.pack(side="left", padx=2)
         Tooltip(self.sim_button, "Suche in der Tabelle nach ähnlichen Fragen")
-        self.new_button = tb.Button(manage, text="🧹 Formular leeren", command=self.clear_form)
+        self.new_button = tb.Button(
+            manage, text="🧹 Formular leeren", command=self.clear_form
+        )
         self.new_button.pack(side="left", padx=2)
         Tooltip(self.new_button, "Formular leeren")
-        self.undo_button = tb.Button(manage, text="↩️ Rückgängig", command=self.undo_action)
+        self.undo_button = tb.Button(
+            manage, text="↩️ Rückgängig", command=self.undo_action
+        )
         self.undo_button.pack(side="left", padx=2)
         Tooltip(self.undo_button, "Letzte Aktion zurücknehmen")
-        self.save_button = tb.Button(manage, text="💾 Speichern", command=self.save_entry, bootstyle="success")
+        self.save_button = tb.Button(
+            manage, text="💾 Speichern", command=self.save_entry, bootstyle="success"
+        )
         self.save_button.pack(side="left", padx=2)
         Tooltip(self.save_button, "Eintrag speichern")
-        self.delete_button = tb.Button(manage, text="🗑 Entfernen", command=self.delete_entry, bootstyle="danger")
+        self.dirty_label = Label(
+            manage, text="•", foreground="#FFA64D", background="#f2f2f2"
+        )
+        self.dirty_label.pack(side="left", padx=(0, 2))
+        self.dirty_label.pack_forget()
+        self.delete_button = tb.Button(
+            manage, text="🗑 Entfernen", command=self.delete_entry, bootstyle="danger"
+        )
         self.delete_button.pack(side="left", padx=2)
         Tooltip(self.delete_button, "Markierten Eintrag löschen")
 
@@ -415,7 +447,9 @@ class KBManager:
             foreground="gray",
             background="#f2f2f2",
         ).grid(row=0, column=0, columnspan=2, sticky="w", padx=5, pady=(2, 4))
-        Label(self.ai_block, text="Text für KI-Vorschläge", background="#f2f2f2").grid(row=1, column=0, sticky="ne")
+        Label(self.ai_block, text="Text für KI-Vorschläge", background="#f2f2f2").grid(
+            row=1, column=0, sticky="ne"
+        )
         self.source_text = Text(self.ai_block, width=60, height=6)
         self.source_text.grid(row=1, column=1, padx=5, pady=2, sticky="ew")
         Tooltip(self.source_text, self.tooltips.get("source", ""))
@@ -484,7 +518,9 @@ class KBManager:
             )
             self.tree.column(col, width=120, anchor="w")
         self.tree_scroll = Scrollbar(table, orient="vertical", command=self.tree.yview)
-        self.tree_xscroll = Scrollbar(table, orient="horizontal", command=self.tree.xview)
+        self.tree_xscroll = Scrollbar(
+            table, orient="horizontal", command=self.tree.xview
+        )
         self.tree.configure(
             yscrollcommand=self.tree_scroll.set, xscrollcommand=self.tree_xscroll.set
         )
@@ -502,8 +538,16 @@ class KBManager:
             label="Neuen Eintrag einfügen", command=self.clear_form
         )
         self.tree.bind("<Button-3>", self.show_context_menu)
-
         self.master.bind("<Escape>", lambda e: self.on_escape())
+        self.master.bind("<Delete>", self.delete_entry_via_key)
+        self.master.bind("<Return>", self.load_entry_via_key)
+        self.master.bind("<F2>", self.load_entry_via_key)
+        self.master.bind("<Control-n>", self.clear_form_via_key)
+        self.master.bind("<Control-f>", lambda e: self.focus_filter())
+        self.master.bind("<Control-d>", self.duplicate_selected_to_form)
+        self.master.bind("<Alt-Up>", lambda e: self.move_selection(-1))
+        self.master.bind("<Alt-Down>", lambda e: self.move_selection(1))
+        self.master.bind_all("<Control-z>", lambda e: self.undo_action())
 
         self.refresh_tree()
         self.edit_index = None
@@ -541,7 +585,10 @@ class KBManager:
             axis=1,
         )
         for _, row in self.df[mask].iterrows():
-            values = [textwrap.shorten(str(row[c]), width=80, placeholder="…") for c in COLUMNS]
+            values = [
+                textwrap.shorten(str(row[c]), width=80, placeholder="…")
+                for c in COLUMNS
+            ]
             self.tree.insert("", "end", values=values, tags=("match",))
         self.master.after_cancel(show_id)
         self.stop_progress()
@@ -695,11 +742,27 @@ class KBManager:
             ).show_toast()
         self.master.after(5000, lambda: self.message_var.set(""))
 
+    def update_dirty_indicator(self, dirty: bool):
+        if dirty:
+            if not self.dirty_label.winfo_ismapped():
+                self.dirty_label.pack(side="left", padx=(0, 2))
+            self.master.title("* Stone Knowledgebase Manager")
+        else:
+            if self.dirty_label.winfo_ismapped():
+                self.dirty_label.pack_forget()
+            self.master.title("Stone Knowledgebase Manager")
+
+    def set_form_dirty(self, dirty: bool):
+        self.is_dirty = dirty
+        color = "#FFA64D" if dirty else self.form_block.cget("background")
+        self.form_block.configure(highlightbackground=color)
+        self.update_dirty_indicator(dirty)
+
     def highlight_form(self):
-        self.form.configure(highlightbackground="#FFA64D", highlightthickness=2)
+        self.set_form_dirty(True)
 
     def clear_highlight(self):
-        self.form.configure(highlightthickness=0)
+        self.set_form_dirty(False)
 
     def on_escape(self, _=None):
         self.clear_highlight()
@@ -785,6 +848,36 @@ class KBManager:
                 widget.insert(0, val)
         self.show_message("Formular wiederhergestellt.", info=True)
 
+    def delete_entry_via_key(self, _=None):
+        if self.tree.selection():
+            self.delete_entry()
+
+    def load_entry_via_key(self, _=None):
+        if self.tree.selection():
+            self.load_entry()
+
+    def clear_form_via_key(self, _=None):
+        self.clear_form()
+
+    def duplicate_selected_to_form(self, _=None):
+        if self.tree.selection():
+            self.load_entry()
+            self.edit_index = None
+
+    def move_selection(self, delta):
+        items = self.tree.get_children()
+        if not items:
+            return
+        cur = self.tree.selection()
+        if not cur:
+            return
+        idx = self.tree.index(cur[0]) + delta
+        if idx < 0 or idx >= len(items):
+            return
+        target = items[idx]
+        self.tree.selection_set(target)
+        self.tree.see(target)
+
     def schedule_spellcheck(self, widget):
         """Debounce and start asynchronous spell checking."""
         if widget in self.spell_after:
@@ -804,9 +897,7 @@ class KBManager:
 
             def apply():
                 widget.tag_delete("misspell")
-                widget.tag_configure(
-                    "misspell", underline=True, foreground="#d9534f"
-                )
+                widget.tag_configure("misspell", underline=True, foreground="#d9534f")
                 for m in matches:
                     start = f"1.0+{m.offset}c"
                     end = f"1.0+{m.offset + m.errorLength}c"
@@ -827,6 +918,9 @@ class KBManager:
             else:
                 values.append(widget.get().strip())
         return dict(zip(COLUMNS, values))
+
+    def focus_filter(self):
+        self.filter_entry.focus_set()
 
     def push_history(self):
         """Save current form state."""
@@ -875,9 +969,7 @@ class KBManager:
             return
         self.ai_message_var.set("")
         if CATEGORY_MAPPED:
-            self.show_message(
-                "Unbekannte Kategorie → Sonstiges übernommen", info=True
-            )
+            self.show_message("Unbekannte Kategorie → Sonstiges übernommen", info=True)
             CATEGORY_MAPPED = False
         self.suggestions.extend(new_entries)
         self.refresh_suggestion_box()

@@ -31,7 +31,7 @@ def test_edit_border_escape(tmp_path):
     app.refresh_tree()
     app.tree.selection_set(app.tree.get_children()[0])
     app.load_entry()
-    assert int(app.form.cget("highlightthickness")) == 2
+    assert app.form_block.cget("highlightbackground") == "#FFA64D"
     app.on_escape()
-    assert int(app.form.cget("highlightthickness")) == 0
+    assert app.form_block.cget("highlightbackground") == "#f2f2f2"
     root.destroy()

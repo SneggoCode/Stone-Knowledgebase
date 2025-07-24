@@ -21,31 +21,31 @@ def display_available():
 
 @pytest.mark.skipif(not display_available(), reason="requires display")
 def test_border_toggle(monkeypatch, tmp_path):
-    monkeypatch.setattr('language_tool_python.LanguageTool', lambda *_: None)
-    csv_path = tmp_path / 'kb.csv'
+    monkeypatch.setattr("language_tool_python.LanguageTool", lambda *_: None)
+    csv_path = tmp_path / "kb.csv"
     df = pd.DataFrame(columns=COLUMNS)
     save_kb(df, csv_path)
-    root = Window(themename='flatly')
+    root = Window(themename="flatly")
     app = KBManager(root)
     app.csv_file = str(csv_path)
     app.df = df
     app.refresh_tree()
 
     sug = {
-        'category': 'Produkt',
-        'faq_question': 'Q',
-        'answer_text': 'A',
-        'stone_type': '',
-        'product_form': '',
-        'product_size': '',
-        'eigenschaft': '',
-        'anwendung': '',
+        "category": "Produkt",
+        "faq_question": "Q",
+        "answer_text": "A",
+        "stone_type": "",
+        "product_form": "",
+        "product_size": "",
+        "eigenschaft": "",
+        "anwendung": "",
     }
     app.suggestions = [sug]
     app.refresh_suggestion_box()
     app.suggestion_box.selection_set(0)
     app.load_suggestion()
-    assert int(app.form.cget('highlightthickness')) == 2
+    assert app.form_block.cget("highlightbackground") == "#FFA64D"
     app.save_entry()
-    assert int(app.form.cget('highlightthickness')) == 0
+    assert app.form_block.cget("highlightbackground") == "#f2f2f2"
     root.destroy()
