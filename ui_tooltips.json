@@ -1,0 +1,11 @@
+{
+  "category": "Kategorie des Eintrags, z.B. product, payment, delivery, installation oder warranty",
+  "faq_question": "Kundenfrage, die vom Voice Agent beantwortet werden soll",
+  "answer_text": "Vollständige Antwort, die Lisa 2 sprechen wird",
+  "stone_type": "Steinart wie Granit, Jurakalk usw.",
+  "product_form": "Form des Produkts, z.B. Splitt oder Platte",
+  "product_size": "Größe inklusive Einheit, etwa 8/16 mm oder 30 cm",
+  "eigenschaft": "Besondere Eigenschaft wie frostbeständig",
+  "anwendung": "Typischer Einsatzbereich"
+  ,"source": "Freitext zur Erzeugung von KI-Vorschlägen"
+}
